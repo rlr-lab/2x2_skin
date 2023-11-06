@@ -1,0 +1,137 @@
+---
+title: "CD117/Triptase_Analysis"
+author: "Ramon Lorenzo"
+date: '2022-11-18'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r R21_2_Format}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggpubr)
+library(ggsci)
+library(lme4)
+library(emmeans)
+
+DataPAthCore_1<-read.csv("../Path Core - R21_2_Format.csv",stringsAsFactors = T)
+summary(DataPAthCore_1)
+colnames(DataPAthCore_1)
+DataPAthCore_1$Donor<-as.factor(DataPAthCore_1$Donor)
+DataPAthCore_1$Replicate<-as.factor(DataPAthCore_1$Replicate)
+DataPAthCore_1$Positive<-as.numeric(as.character(DataPAthCore_1$Positive))
+DataPAthCore_1$PositivePerc<-(DataPAthCore_1$Positive/DataPAthCore_1$Total.cells)*100
+DataPAthCore_1$PercPosAreaNorm<-DataPAthCore_1$PositivePerc/log10(DataPAthCore_1$Area.µm.2)
+
+
+DataPAthCore_1%>%
+  ggplot(aes(x=Condition,y=Positive,color=Target.cell))+geom_boxplot(,outlier.shape = NA)+
+  geom_point(position = position_jitterdodge())+
+  theme_pubr()+scale_color_lancet()+facet_grid(Group~Tissue,scales = "free")+rotate_x_text(90)
+
+
+DataPAthCore_1%>%
+  ggplot(aes(x=Condition,y=PositivePerc,color=Target.cell))+geom_boxplot(,outlier.shape = NA)+
+  geom_point(position = position_jitterdodge())+
+  theme_pubr()+scale_color_lancet()+facet_grid(Group~Tissue,scales = "free")+rotate_x_text(90)
+
+DataPAthCore_1%>%
+  ggplot(aes(x=Condition,y=Total.cells,color=Target.cell))+geom_boxplot(,outlier.shape = NA)+
+  geom_point(position = position_jitterdodge())+
+  theme_pubr()+scale_color_lancet()+facet_grid(Group~Tissue,scales = "free")+rotate_x_text(90)
+
+DataPAthCore_1%>%
+  ggplot(aes(x=Condition,y=Area.µm.2,color=Target.cell))+geom_boxplot(,outlier.shape = NA)+
+  geom_point(position = position_jitterdodge())+
+  theme_pubr()+scale_color_lancet()+facet_grid(Group~Tissue,scales = "free")+rotate_x_text(90)
+
+DataPAthCore_1%>%
+  ggplot(aes(x=Condition,y=PercPosAreaNorm,color=Target.cell))+geom_boxplot(,outlier.shape = NA)+
+  geom_point(position = position_jitterdodge())+
+  theme_pubr()+scale_color_lancet()+facet_grid(Group~Tissue)
+
+DataPAthCore_1%>%
+  ggplot(aes(x=interaction(Group,Condition),y=PercPosAreaNorm,color=Target.cell))+geom_boxplot(,outlier.shape = NA)+
+  geom_point(position = position_jitterdodge())+
+  theme_pubr()+scale_color_lancet()+facet_grid(.~Tissue)+rotate_x_text(45)
+
+
+model <- lmer(log10(PercPosAreaNorm) ~ Condition*Tissue*Target.cell+(1|Donor), DataPAthCore_1%>%filter(Tissue!="Foreskin"&Group=="Non-infected"))
+summary(model)
+library(emmeans)
+a <- pairs(lsmeans(model, ~ Tissue))
+b <- pairs(lsmeans(model, ~ Condition))
+c <- pairs(lsmeans(model, ~ Target.cell))
+b.a.c <- pairs(lsmeans(model, ~ Condition | Tissue | Target.cell))
+b.c.a <- pairs(lsmeans(model, ~  Target.cell| Condition | Tissue))
+rbind(a,b,c,b.c.a, b.a.c,adjust="fdr")
+pairs(lsmeans(model, ~ Condition | Tissue | Target.cell),adjust="fdr")
+pairs(lsmeans(model, ~ Condition | Tissue),adjust="fdr")
+
+qqnorm(resid(model))
+qqline(resid(model))
+hist(resid(model))
+plot(fitted(model),resid(model))
+abline(h=0)
+
+model <- lmer(log10(PercPosAreaNorm) ~ Condition*Tissue*Target.cell+(1|Donor), DataPAthCore_1%>%filter(Tissue!="Foreskin"&Group=="4h"))
+summary(model)
+library(emmeans)
+a <- pairs(lsmeans(model, ~ Tissue))
+b <- pairs(lsmeans(model, ~ Condition))
+c <- pairs(lsmeans(model, ~ Target.cell))
+b.a.c <- pairs(lsmeans(model, ~ Condition | Tissue | Target.cell))
+b.c.a <- pairs(lsmeans(model, ~  Target.cell| Condition | Tissue))
+rbind(a,b,c,b.c.a, b.a.c,adjust="fdr")
+pairs(lsmeans(model, ~ Condition | Tissue | Target.cell),adjust="fdr")
+pairs(lsmeans(model, ~ Condition | Tissue),adjust="fdr")
+
+qqnorm(resid(model))
+qqline(resid(model))
+hist(resid(model))
+plot(fitted(model),resid(model))
+abline(h=0)
+
+#Mean
+
+DataPAthCore_1_Mean<-DataPAthCore_1 %>%
+  group_by(Condition, Tissue, Donor,Group,Target.cell) %>%
+  summarise(Mean_PercPosAreaNorm = mean(PercPosAreaNorm)) 
+
+
+
+Donors_w4h<-unique(filter(DataPAthCore_1,Group=="4h")$Donor)
+DataPAthCore_1_BothGroups<-DataPAthCore_1%>%filter(Donor%in%Donors_w4h)
+
+DataPAthCore_1_BothGroups%>%
+  ggplot(aes(x=Target.cell,y=PercPosAreaNorm,color=Group))+geom_boxplot(,outlier.shape = NA)+
+  geom_point(position = position_jitterdodge())+
+  theme_pubr()+scale_color_npg()+facet_grid(Condition~Tissue)+rotate_x_text(45)
+
+model <- lmer(log10(PercPosAreaNorm) ~ Condition*Group*Target.cell+(1|Donor), DataPAthCore_1_BothGroups%>%filter(Tissue=="Glans"))
+summary(model)
+library(emmeans)
+a <- pairs(lsmeans(model, ~ Group))
+b <- pairs(lsmeans(model, ~ Condition))
+c <- pairs(lsmeans(model, ~ Target.cell))
+b.a.c <- pairs(lsmeans(model, ~ Group | Condition | Target.cell))
+b.c.a <- pairs(lsmeans(model, ~  Condition| Group | Target.cell))
+c.b.a <- pairs(lsmeans(model, ~  Target.cell| Condition | Group))
+rbind(a,b,c,b.c.a, b.a.c,c.b.a,adjust="fdr")
+
+
+
+DataPAthCore_1_MeanTotal<-aggregate(Total.cells/(Area.µm.2*10^-3)~Condition+ Tissue+Donor+Group+Target.cell,DataPAthCore_1,mean)
+
+```
+

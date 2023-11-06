@@ -1,0 +1,203 @@
+---
+title: "Virus Count Analysis"
+author: "Ramon Lorenzo"
+date: '2023-03-6'
+output: html_document
+---
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(ggbiplot)
+library(plotly)
+library(tidyr)
+library(ggsci)
+library(ggpubr)
+library(pscl)
+library(fitdistrplus)
+
+DataCounts_1<-read.csv("../Virus count - R21[90].csv",stringsAsFactors = T,sep = ",")
+colnames(DataCounts_1)
+summary(DataCounts_1)
+
+DataCounts_1$Donor<-as.factor(DataCounts_1$Donor)
+DataCounts_1$Image<-as.factor(DataCounts_1$Image)
+DataCounts_1$Virions<-as.numeric(as.character(DataCounts_1$Virions))
+DataCounts_1$Virions<-plyr::mapvalues(DataCounts_1$Virions,NA,0)
+DataCounts_1$Penetrating.Virions<-as.numeric(as.character(DataCounts_1$Penetrating.Virions))
+DataCounts_1$Percent.of.penetrating.virions<-as.numeric(as.character(DataCounts_1$Percent.of.penetrating.virions))
+DataCounts_1$Percent.of.penetrating.virions<-plyr::mapvalues(DataCounts_1$Percent.of.penetrating.virions,NA,0)
+DataCounts_1$Percent.of.penetrating.virions<-plyr::mapvalues(DataCounts_1$Percent.of.penetrating.virions,112.50
+                                                           ,100)
+DataCounts_1<-DataCounts_1%>%filter(Donor!="1905")
+
+library(performance)
+plotdist(DataCounts_1$Virions, histo = TRUE, demp = TRUE)
+descdist(DataCounts_1$Virions, discrete=FALSE, boot=500)
+fnb<-fitdist(DataCounts_1$Virions, "nbinom")
+fp<-fitdist(DataCounts_1$Virions, "pois")
+plot.legend <- c( "nbinom", "pois")
+denscomp(list(fnb,fp), legendtext = plot.legend)
+qqcomp(list(fnb,fp), legendtext = plot.legend)
+cdfcomp(list(fnb,fp), legendtext = plot.legend)
+ppcomp(list(fnb,fp), legendtext = plot.legend)
+
+gofstat(list(fnb,fp))
+
+
+model <- lmer(Virions ~ Condition*Tissue+(1|Donor), DataCounts_1)
+plot(check_distribution(model))
+
+
+library(glmmTMB)
+zinbm0<-glmmTMB(Virions ~ Condition*Tissue+(1|Donor), 
+                family="nbinom2",
+                ziformula=~1,data = DataCounts_1)
+
+zinbm1<-glmmTMB(Virions ~ Tissue*Condition+(1|Donor), 
+                family="nbinom2",
+                data = DataCounts_1)
+
+zinbm2<-glmmTMB(Virions ~ Condition*Tissue+(1|Donor), 
+                family="nbinom2",
+                ziformula=~Tissue,data = DataCounts_1)
+
+anova(zinbm0,zinbm1,zinbm2)
+model_performance(zinbm0)
+check_model(zinbm0)
+compare_performance(zinbm0,zinbm1,zinbm2)
+
+
+library(lsmeans)
+t <- pairs(lsmeans(zinbm0, ~ Condition))
+s <- pairs(lsmeans(zinbm0, ~ Tissue))
+t.s <- pairs(lsmeans(zinbm0, ~ Tissue | Condition))
+s.t <- pairs(lsmeans(zinbm0, ~ Condition | Tissue))
+rbind(t.s, s.t,adjust="fdr")
+
+check_model(zinbm0)
+
+ggboxplot(DataCounts_1, x = "Condition", 
+          y = "Virions",
+          combine = TRUE,
+          color = "Tissue", palette = "npg",
+          ylab = "Virions", 
+          add = "jitter",                              # Add dotplot
+          add.params = list(binwidth = 0.2))+scale_y_log10()
+
+
+DataCounts_1_MeanVirions<-DataCounts_1 %>%
+  group_by(Condition, Tissue, Donor) %>%
+  summarise(Mean_Virions = mean(Virions)) 
+
+model <- lmer(log10(Mean_Virions) ~ Condition*Tissue+(1|Donor), DataCounts_1_MeanVirions)
+plot(check_distribution(model))
+library(lsmeans)
+t <- pairs(lsmeans(model, ~ Condition))
+s <- pairs(lsmeans(model, ~ Tissue))
+t.s <- pairs(lsmeans(model, ~ Tissue | Condition))
+s.t <- pairs(lsmeans(model, ~ Condition | Tissue))
+rbind(t.s, s.t,adjust="fdr")
+
+check_model(model)
+qqnorm(resid(model))
+qqline(resid(model))
+hist(resid(model))
+plot(fitted(model),resid(model))
+abline(h=0)
+
+DataCounts_1_MeanVirions%>%
+  ggplot(aes(x=Condition,y=Mean_Virions,color=Tissue))+geom_boxplot(,outlier.shape = NA)+
+  geom_point(position = position_jitterdodge())+
+  theme_pubr()+scale_color_npg()+facet_grid(.~Tissue,scales = "free")
+
+#Penetrators
+Penetrators<-DataCounts_1[,c(1,3,4,8)]
+library(gamlss)
+lm0 <- gamlss((Percent.of.penetrating.virions/100) ~ Condition*Tissue,family = BEINF, data = Penetrators)
+plot(check_distribution(lm0))
+
+library(performance)
+binned_residuals(lm0)
+check_model(lm0)
+
+library(lsmeans)
+t <- pairs(emmeans(lm0, ~ Condition))
+s <- pairs(lsmeans(lm0, ~ Tissue))
+t.s <- pairs(lsmeans(lm0, ~ Tissue | Condition))
+s.t <- pairs(lsmeans(lm0, ~ Condition | Tissue))
+rbind(t.s,s.t,adjust="FDR")
+
+
+qqnorm(resid(lm0))
+qqline(resid(lm0))
+hist(resid(lm0))
+plot(fitted(lm0),resid(lm0))
+abline(h=0)
+
+DataCounts_1%>%
+  ggplot(aes(x=Condition,y=Percent.of.penetrating.virions,color=Tissue))+geom_boxplot(,outlier.shape = NA)+
+  geom_point(position = position_jitterdodge())+
+  theme_pubr()+scale_color_npg()+facet_grid(.~Tissue,scales = "free")
+
+DataCounts_1_MeanPenetrators<-DataCounts_1 %>%
+  group_by(Condition, Tissue, Donor) %>%
+  summarise(Mean_Penetrator = mean(Percent.of.penetrating.virions)) 
+
+#Depth
+
+Depth<-DataCounts_1[,c(1:4,9:59)]
+Depth<-Depth%>%pivot_longer(Penetration.Depths..um.:X.49,names_to = "particle",values_to = "Penetration.Depths")
+Depth<-Depth%>%dplyr::select(-particle)
+Depth<-na.omit(Depth)
+Depth$Penetration.Depths<-as.numeric(as.character(Depth$Penetration.Depths))
+Depth_Mean<-Depth %>%
+  group_by(Condition, Tissue, Donor) %>%
+  summarise(Mean_Depth = mean(Penetration.Depths))
+
+Depth%>%
+  ggplot(aes(x=Condition,y=Penetration.Depths,color=Tissue))+geom_boxplot(,outlier.shape = NA)+
+  geom_point(position = position_jitterdodge())+
+  theme_pubr()+scale_color_npg()+facet_grid(.~Tissue,scales = "free")+scale_y_log10()
+
+Depth_Mean%>%
+  ggplot(aes(x=Condition,y=Mean_Depth,color=Tissue))+geom_boxplot(,outlier.shape = NA)+
+  geom_point(position = position_jitterdodge())+
+  theme_pubr()+scale_color_npg()+facet_grid(.~Tissue,scales = "free")
+
+fl<-fitdist(Depth_Mean$Mean_Depth, "lnorm")
+fn<-fitdist(Depth_Mean$Mean_Depth, "norm")
+fg<-fitdist(Depth_Mean$Mean_Depth, "gamma")
+plot.legend <- c("normal", "gamma", "lognorm")
+denscomp(list(fn,fg,fl), legendtext = plot.legend)
+qqcomp(list(fn,fg,fl), legendtext = plot.legend)
+cdfcomp(list(fn,fg,fl), legendtext = plot.legend)
+ppcomp(list(fn,fg,fl), legendtext = plot.legend)
+gofstat(list(fn,fg,fl))
+
+lm1 <- lmer(log10(Mean_Depth) ~ Condition*Tissue +(1|Donor), data = Depth_Mean)
+plot(check_distribution(lm1))
+
+library(performance)
+binned_residuals(lm1)
+check_model(lm1)
+
+library(lsmeans)
+t <- pairs(emmeans(lm1, ~ Condition))
+s <- pairs(lsmeans(lm1, ~ Tissue))
+t.s <- pairs(lsmeans(lm1, ~ Tissue | Condition))
+s.t <- pairs(lsmeans(lm1, ~ Condition | Tissue))
+rbind(t.s,s.t,adjust="FDR")
+
+
+qqnorm(resid(lm1))
+qqline(resid(lm1))
+hist(resid(lm1))
+plot(fitted(lm1),resid(lm1))
+abline(h=0)
+
+
+```
+
+
