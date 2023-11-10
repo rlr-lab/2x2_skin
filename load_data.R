@@ -19,8 +19,14 @@ r21 <- read_csv("data/R21_PathCore.csv")
 
 # Target cells R21
 
-target_dist <- read_csv("data/Target cells R21 DISTANCE.csv")
-target_total <- read_csv("data/Target cells R21 TOTAL COUNT.csv") # counts and some summary stats about area of tissue section for above
+target_dist <- read_csv("data/Target cells R21 DISTANCE.csv") |>
+  janitor::clean_names(replace=janitor:::mu_to_u)
+
+# counts and some summary stats about area of tissue section for above
+
+target_total <- read_csv("data/Target cells R21 TOTAL COUNT.csv") |>
+  janitor::clean_names(replace=janitor:::mu_to_u) 
+
 
 # virus count R21 ----
 

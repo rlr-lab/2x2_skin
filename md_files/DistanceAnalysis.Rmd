@@ -1,0 +1,162 @@
+---
+title: "Distance Analysis"
+author: "Ramon Lorenzo"
+date: '2023-03-06'
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggpubr)
+library(ggsci)
+library(lme4)
+library(emmeans)
+
+Data_1_Dist<-read.csv("data/Target cells R21 DISTANCE.csv",stringsAsFactors = T)
+summary(Data_1_Dist)
+colnames(Data_1_Dist)
+
+Data_1_Dist$Donor<-as.factor(Data_1_Dist$Donor)
+Data_1_Dist$Replicate<-as.factor(Data_1_Dist$Replicate)
+
+Data_1_Dist<-Data_1_Dist%>%filter(Tissue!="All tissue")
+
+Data_1_Dist%>%
+  ggplot(aes(x=Group,y=Distance.to.annotation.with.Epithelium..µm,color=Target.cell))+geom_boxplot(,outlier.shape = NA)+
+  geom_point(position = position_jitterdodge())+
+  theme_pubr()+scale_color_lancet()+facet_grid(Tissue*Layer~Target.cell,scales = "free")+rotate_x_text(90)
+
+
+Data_1_Dist%>%
+  ggplot(aes(x=interaction(Group,Target.cell),y=Distance.to.annotation.with.Epithelium..µm,color=Target.cell))+geom_boxplot(,outlier.shape = NA)+
+  geom_point(position = position_jitterdodge())+
+  theme_pubr()+scale_color_lancet()+facet_grid(~Tissue*Layer,scales = "free")+rotate_x_text(45)
+
+Data_1_Dist%>%filter(Target.cell=="CD4+")%>%
+  ggplot(aes(x=Tissue,y=Distance.to.annotation.with.Epithelium..µm,color=Group))+geom_boxplot(,outlier.shape = NA)+
+  geom_point(position = position_jitterdodge())+
+  theme_pubr()+scale_color_npg()+facet_wrap(.~Tissue)
+
+Data_1_Dist%>%
+  ggplot(aes(x=Tissue,y=(Distance.to.annotation.with.Epithelium..µm+1),color=Group))+geom_boxplot(,outlier.shape = NA)+
+  geom_point(position = position_jitterdodge())+
+  theme_pubr()+scale_color_npg()+facet_grid(Tissue~Target.cell)+scale_y_log10()+rotate_x_text(45)
+
+Data_1_Dist%>%
+  ggplot(aes(x=Tissue,y=Distance.to.annotation.with.Epithelium..µm+0.1,color=Group))+geom_boxplot(,outlier.shape = NA)+
+  geom_point(position = position_jitterdodge())+
+  theme_pubr()+scale_color_npg()+facet_grid(Tissue~Target.cell)+scale_y_log10()+rotate_x_text(45)
+
+Data_1_Dist_Mean<-aggregate(Distance.to.annotation.with.Epithelium..µm~Condition+Group+Layer+Donor+Tissue+Target.cell, data = Data_1_Dist,mean)
+
+Data_1_Dist_Mean%>%
+  ggplot(aes(x=Layer,y=Distance.to.annotation.with.Epithelium..µm,color=interaction(Group,Condition)))+geom_boxplot(,outlier.shape = NA)+
+  geom_point(position = position_jitterdodge())+
+  theme_pubr()+scale_color_npg()+facet_wrap(Target.cell~.,scales = "free")
+
+Data_1_Dist_Mean%>%
+  ggplot(aes(x=Layer,y=Distance.to.annotation.with.Epithelium..µm+1,color=Group))+geom_boxplot(,outlier.shape = NA)+
+  geom_point(position = position_jitterdodge())+
+  theme_pubr()+scale_color_npg()+facet_grid(Tissue*Condition~Target.cell)+scale_y_log10()+rotate_x_text(45)
+
+Data_1_Dist_Mean%>%
+  ggplot(aes(x=Group,y=Distance.to.annotation.with.Epithelium..µm+1,color=Layer))+geom_boxplot(,outlier.shape = NA)+
+  geom_point(position = position_jitterdodge())+
+  theme_pubr()+scale_color_jco()+facet_grid(Tissue*Condition~Target.cell)+scale_y_log10()
+
+model_glans <- lmer(Distance.to.annotation.with.Epithelium..µm ~ Condition*Group*Layer*Target.cell+(1|Donor), filter(Data_1_Dist_Mean,Tissue=="Glans"))
+summary(model_glans)
+library(emmeans)
+a <- pairs(lsmeans(model_glans, ~ Layer))
+b <- pairs(lsmeans(model_glans, ~ Group))
+c <- pairs(lsmeans(model_glans, ~ Target.cell))
+d <- pairs(lsmeans(model_glans, ~ Condition))
+b.a.c.d <- pairs(lsmeans(model_glans, ~ Group | Layer | Target.cell |Condition))
+d.a.c.b <- pairs(lsmeans(model_glans, ~  Condition| Layer | Target.cell | Group))
+c.d.b.a <- pairs(lsmeans(model_glans, ~  Target.cell | Condition | Group | Layer ))
+GlansBigModel<-rbind(a,b,c, b.a.c.d,d.a.c.b,adjust="fdr")
+
+table <- GlansBigModel %>%
+  data.frame(stringsAsFactors = FALSE) %>%
+  mutate(., p.value = round(p.value, 5)) %>%
+  mutate_at(., c('estimate', 'SE', 'df', 't.ratio'), function(x){round(x, 2)}) %>%
+  rename(`p value` = p.value, `t-ratio` = t.ratio, `d.f.` = df) %>%
+  gt(.) %>%
+  cols_align('center') %>%
+  tab_source_note(
+    source_note = "P value adjustment: FDR"
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_body(
+      rows = `p value` < 0.05)
+  ) %>%
+  tab_header(
+    title = md("**GlansBigModel**")
+  ) %>%
+  gt:::as.tags.gt_tbl()
+
+html_print(table)
+
+#write.csv(GlansBigModel,"GlansBigModel.csv",row.names = F,quote = F)
+
+
+#Check other combinations
+pairs(lsmeans(model_glans, ~ Condition| Group | Tissue | Target.cell),adjust="fdr")
+pairs(lsmeans(model_glans, ~ Condition | Group | Tissue),adjust="fdr")
+
+
+model_shaft <- lmer(Distance.to.annotation.with.Epithelium..µm ~ Condition*Group*Layer*Target.cell+(1|Donor), filter(Data_1_Dist_Mean,Tissue=="Shaft"))
+summary(model_shaft)
+
+e <- pairs(lsmeans(model_shaft, ~ Layer))
+f <- pairs(lsmeans(model_shaft, ~ Group))
+g <- pairs(lsmeans(model_shaft, ~ Target.cell))
+h <- pairs(lsmeans(model_shaft, ~ Condition))
+f.e.g.h <- pairs(lsmeans(model_shaft, ~ Group | Layer | Target.cell |Condition))
+e.g.h.f <- pairs(lsmeans(model_shaft, ~  Condition| Layer | Target.cell | Group))
+
+ShaftBigModel<-rbind(e,f,g,f.e.g.h,e.g.h.f,adjust="fdr")
+
+
+table <- ShaftBigModel %>%
+  data.frame(stringsAsFactors = FALSE) %>%
+  mutate(., p.value = round(p.value, 5)) %>%
+  mutate_at(., c('estimate', 'SE', 'df', 't.ratio'), function(x){round(x, 2)}) %>%
+  rename(`p value` = p.value, `t-ratio` = t.ratio, `d.f.` = df) %>%
+  gt(.) %>%
+  cols_align('center') %>%
+  tab_source_note(
+    source_note = "P value adjustment: FDR"
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_body(
+      rows = `p value` < 0.05)
+  ) %>%
+  tab_header(
+    title = md("**ShaftBigModel**")
+  ) %>%
+  gt:::as.tags.gt_tbl()
+
+html_print(table)
+
+#write.csv(ShaftBigModel,"ShaftBigModel.csv",row.names = F,quote = F)
+
+#Check other combinations
+pairs(lsmeans(model_shaft, ~ Condition| Group | Layer | Target.cell),adjust="fdr")
+pairs(lsmeans(model_shaft, ~ Condition | Group | Layer),adjust="fdr")
+
+
+Data_1_Dist_MeanTotals<-aggregate(Total.Cells/Area.mm.2~Condition+Group+Tissue+Donor+Layer+Target.cell, data = Data_1_Dist,mean)
+
+
+
+```
+
+
