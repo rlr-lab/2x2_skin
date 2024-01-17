@@ -1,0 +1,50 @@
+---
+title: "Analysis of Circumcision Data"
+author: "Ramon + Sean"
+date: today
+format:
+  html:
+    toc: true
+    page-layout: full
+    embed-resources: true
+    code-fold: true
+    code-tools: true
+    link-external-newwindow: true
+execute:
+  warning: false
+from: markdown+emoji 
+editor_options: 
+  chunk_output_type: console
+---
+
+
+# Overview + Highlights
+
+This analysis analyzes []
+
+In this sort of analysis, our expectation would be that shaft samples look the same between circumcised and uncircumcised individuals, and that the glans samples react to virus differently and/or have different resident immune cell populations.
+
+- There were x,y,z differences that we found
+
+- These differences were/were not the same in shaft/glans
+
+- We did not detect differences between glans/shaft or circumcised/uncircumcised for the distance that virions penetrated
+
+
+# Bigger Plots
+
+
+# Specific Insights
+
+
+
+# Remaining Questions/Concerns
+
+
+# Conclusions + Future Analysis
+- A lot of the emmeans models perform kinda poorly, and there isn't much we can do about this I feel like
+
+- 
+
+- Other questions we can ask about depth of penetration?
+

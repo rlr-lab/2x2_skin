@@ -1,0 +1,411 @@
+---
+title: "Distance Analysis"
+subtitle: "tidied by sean :)"
+author: "Ramon Lorenzo"
+date: today
+format:
+  html:
+    toc: true
+    page-layout: full
+    embed-resources: true
+    code-fold: true
+    code-tools: true
+    fig-width: 15
+    fig-height: 10
+    link-external-newwindow: true
+execute:
+  warning: false
+from: markdown+emoji 
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+#| label: load-packages-data
+
+library(ggpubr)
+library(ggsci)
+library(gt)
+library(emmeans)
+library(tidyverse)
+
+distance <- read_csv("data/Target cells R21 DISTANCE.csv") |>
+  janitor::clean_names(replace=janitor:::mu_to_u) |> 
+  mutate(donor = factor(donor),
+         replicate = factor(replicate))
+```
+
+
+
+## Overview + Goals
+
+This document serves to analyze the distance from Thati's dataset.
+
+Not super exciting overall, but we get a few significant comparisons that might be worth looking more into.
+
+
+## Initial Visualization
+
+We can look at this data a few different ways:
+
+```{r}
+#| fig-width: 15
+#| fig-height: 10
+
+distance |>
+  ggplot(aes(x= group,
+             y= distance_to_annotation_with_epithelium_um,
+             color= target_cell)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_point(position = position_jitterdodge(), alpha = 0.2) +
+  theme_pubr() +
+  scale_color_lancet() + 
+  facet_grid(tissue*layer~target_cell, scales = "free") +
+  rotate_x_text(90)
+
+
+distance |>
+  ggplot(aes(x=interaction(group,target_cell),
+             y=distance_to_annotation_with_epithelium_um,
+             color=target_cell)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_point(position = position_jitterdodge())+
+  theme_pubr()+
+  scale_color_lancet()+
+  facet_grid(~tissue*layer, scales = "free")+
+  rotate_x_text(45)
+
+distance |>
+  filter(target_cell=="CD4") |>
+  ggplot(aes(x=group,
+             y=distance_to_annotation_with_epithelium_um,
+             color= group))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_point(position = position_jitterdodge(), alpha = 0.3) +
+  theme_pubr()+
+  labs(title = "CD4+ Cells Only") +
+  scale_color_npg()
+
+distance |>
+  ggplot(aes(x=group,
+             y=(distance_to_annotation_with_epithelium_um+0.1),
+             color=group))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_point(position = position_jitterdodge())+
+  theme_pubr()+
+  scale_color_npg()+
+  facet_grid(tissue~target_cell)+
+  scale_y_log10()+
+  rotate_x_text(45)
+
+distance |>
+  ggplot(aes(x=group,
+             y=distance_to_annotation_with_epithelium_um+0.1,
+             color=group))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_point(position = position_jitterdodge())+
+  theme_pubr()+
+  scale_color_npg()+
+  facet_grid(tissue~target_cell)+
+  scale_y_log10()+
+  rotate_x_text(45)
+
+
+```
+
+### looking at mean 
+
+mean across replicates 
+
+```{r}
+#| label: finding-MEANing
+#| column: page
+
+# why bother taking a mean here?
+# maybe makes it easier to model idk
+mean_dist <- distance |>
+  dplyr::group_by(condition, group, layer, donor, tissue, target_cell) |>
+  dplyr::summarize(mean_distance_to_annotation_with_epithelium_um = mean(distance_to_annotation_with_epithelium_um))
+
+mean_dist |> 
+  ggplot(aes(x=layer,
+             y=mean_distance_to_annotation_with_epithelium_um,
+             color= interaction(group,condition)))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_point(position = position_jitterdodge())+
+  theme_pubr()+
+  scale_color_npg()+
+  facet_wrap(~target_cell, scales = "free")
+
+mean_dist |> 
+  ggplot(aes(x=layer,
+             y=mean_distance_to_annotation_with_epithelium_um+1,
+             color=group))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_point(position = position_jitterdodge())+
+  theme_pubr()+
+  scale_color_npg()+
+  facet_grid(tissue*condition~target_cell)+
+  scale_y_log10()+
+  rotate_x_text(45)
+
+mean_dist |> 
+  ggplot(aes(x=group,
+             y=mean_distance_to_annotation_with_epithelium_um+1,
+             color=layer)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_point(position = position_jitterdodge()) +
+  theme_pubr()+
+  scale_color_jco()+
+  facet_grid(tissue*condition~target_cell)+
+  scale_y_log10()
+
+```
+
+
+
+
+## modeling
+
+### GLANS
+
+we can also make models to investigate this data:
+
+```{r}
+
+glans <- mean_dist |> 
+  filter(tissue == 'Glans')
+
+model_glans <- lme4::lmer(mean_distance_to_annotation_with_epithelium_um ~ condition*group*layer*target_cell+(1|donor), 
+                          data = glans)
+summary(model_glans)
+
+a <- pairs(lsmeans(model_glans, ~ layer))
+b <- pairs(lsmeans(model_glans, ~ group))
+c <- pairs(lsmeans(model_glans, ~ target_cell))
+d <- pairs(lsmeans(model_glans, ~ condition))
+b.a.c.d <- pairs(lsmeans(model_glans, ~ group | layer | target_cell |condition))
+d.a.c.b <- pairs(lsmeans(model_glans, ~  condition| layer | target_cell | group))
+c.d.b.a <- pairs(lsmeans(model_glans, ~  target_cell | condition | group | layer ))
+
+GlansBigModel<-rbind(a,b,c, b.a.c.d,d.a.c.b,adjust="fdr")
+
+table <- GlansBigModel |>
+  data.frame(stringsAsFactors = FALSE) |>
+  mutate(p.value = round(p.value, 5)) |>
+  mutate_at(c('estimate', 'SE', 'df', 't.ratio'), function(x){round(x, 2)}) |>
+  rename(`p value` = p.value, `t-ratio` = t.ratio, `d.f.` = df) |>
+  gt() |>
+  cols_align('center') |>
+  tab_source_note(
+    source_note = "P value adjustment: FDR"
+  ) |>
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_body(
+      rows = `p value` < 0.05)
+  ) |>
+  tab_header(
+    title = md("**GlansBigModel**")
+  ) |>
+  gt:::as.tags.gt_tbl()
+
+table
+
+#htmltools::html_print(table)
+
+#write.csv(GlansBigModel,"GlansBigModel.csv",row.names = F,quote = F)
+```
+
+here we can see significant differences between CD3 and CD4 single positive cells in uncircumsized epithelium between infected and non infected-- a significant difference was not detected in corresponding circumsized tissue:
+
+```{r}
+#| label: cd4.3-glans
+#| column: screen
+#| fig-width: 8
+#| fig-height: 8
+
+distance |>
+  filter(layer == 'Connective' & (target_cell == 'CD4' | target_cell == 'CD3') & tissue == 'Glans') |>
+  ggplot(aes(x = group,
+             y = distance_to_annotation_with_epithelium_um,
+             color = group)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(alpha = 0.4) +
+  scale_y_log10() +
+  stat_compare_means(
+    comparisons = list(c('4h', 'Non infected')),
+    method = "wilcox.test", 
+    label = "p.signif") +
+  facet_grid(rows = vars(target_cell), cols = vars(condition), scales = 'free') +
+  labs(title = "CD3/CD4 Single Positive cells in Connective Tissue (Glans)") +
+  theme_pubr() + scale_color_lancet() 
+
+distance |>
+  filter(layer == 'Connective' & (target_cell == 'CD4' | target_cell == 'CCR10') & tissue == 'Glans') |>
+  ggplot(aes(x = condition,
+             y = distance_to_annotation_with_epithelium_um,
+             color = condition)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(alpha = 0.4) +
+  scale_y_log10() +
+  stat_compare_means(
+    comparisons = list(c('Circumcised', 'Uncircumcised')),
+    method = "wilcox.test", 
+    label = "p.signif") +
+  facet_grid(rows = vars(target_cell), cols = vars(group), scales = 'free') +
+  labs(title = "[not mean] CD4 Single Positive cells in Connective Tissue (Glans)") +
+  theme_pubr() + scale_color_lancet() 
+
+mean_dist |>
+  filter(layer == 'Connective' & (target_cell == 'CD4' | target_cell == 'CD3') & tissue == 'Glans') |>
+  ggplot(aes(x = group,
+             y = mean_distance_to_annotation_with_epithelium_um,
+             color = group)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(alpha = 0.4) +
+  scale_y_log10() +
+  stat_compare_means(
+    comparisons = list(c('4h', 'Non infected')),
+    method = "wilcox.test", 
+    label = "p.signif") +
+  facet_grid(rows = vars(target_cell), cols = vars(condition), scales = 'free') +
+  labs(title = "[mean] CD4 Single Positive cells in Connective Tissue (Glans)") +
+  theme_pubr() + scale_color_lancet()  
+```
+
+
+
+```{r}
+#| label: cd4-glans
+
+mean_dist |>
+  filter(layer == 'Epithelium' & target_cell == 'CD4' & group == '4h') |>
+  ggplot(aes(x = condition,
+             y = mean_distance_to_annotation_with_epithelium_um,
+             color = condition)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter() +
+  scale_y_log10() +
+  theme_pubr() + scale_color_lancet() 
+
+  
+```
+
+
+
+```{r}
+#| label: model-part-two
+
+#Check other combinations
+pairs(lsmeans(model_glans, ~ condition| group | target_cell), adjust="fdr")
+pairs(lsmeans(model_glans, ~ condition | group), adjust="fdr")
+```
+
+
+### SHAFT
+
+```{r}
+#| label: lets-shaft
+shaft <- mean_dist |> 
+  filter(tissue == 'Shaft')
+
+
+model_shaft <- lme4::lmer(mean_distance_to_annotation_with_epithelium_um ~ condition*group*layer*target_cell+(1|donor), data = shaft)
+
+e <- pairs(lsmeans(model_shaft, ~ layer))
+f <- pairs(lsmeans(model_shaft, ~ group))
+g <- pairs(lsmeans(model_shaft, ~ target_cell))
+h <- pairs(lsmeans(model_shaft, ~ condition))
+f.e.g.h <- pairs(lsmeans(model_shaft, ~ group | layer | target_cell |condition))
+e.g.h.f <- pairs(lsmeans(model_shaft, ~  condition| layer | target_cell | group))
+
+ShaftBigModel<-rbind(e,f,g,f.e.g.h,e.g.h.f,adjust="fdr")
+
+
+table <- ShaftBigModel |>
+  data.frame(stringsAsFactors = FALSE) |>
+  mutate(p.value = round(p.value, 5)) |>
+  mutate_at(c('estimate', 'SE', 'df', 't.ratio'), function(x){round(x, 2)}) |>
+  rename(`p value` = p.value, `t-ratio` = t.ratio, `d.f.` = df) |>
+  gt() |>
+  cols_align('center') |>
+  tab_source_note(
+    source_note = "P value adjustment: FDR"
+  ) |>
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_body(
+      rows = `p value` < 0.05)
+  ) |>
+  tab_header(
+    title = md("**ShaftBigModel**")
+  ) |>
+  gt:::as.tags.gt_tbl()
+
+table
+```
+
+Now we can check out those by making plots-- I'm not too concerned here with cell types that were just differently abundant overall, but if that does end up being relevant somehow we can go back to it.
+
+```{r}
+#| label: shaft-plots
+
+mean_dist |>
+  filter(layer == 'Connective' & (target_cell == 'CD3') & tissue == 'Shaft' & condition == 'Circumcised') |>
+  ggplot(aes(x = group,
+             y = mean_distance_to_annotation_with_epithelium_um,
+             color = group)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(alpha = 0.4) +
+  scale_y_log10() +
+  stat_compare_means(
+    comparisons = list(c('4h', 'Non infected')),
+    method = "wilcox.test", 
+    label = "p.signif") +
+  facet_grid(rows = vars(target_cell), cols = vars(condition), scales = 'free') +
+  labs(title = "[mean] CD3 Single Positive cells in Connective Tissue (Shaft)",
+       caption = 'pvalue is signif in emmeans model, might not mean much tho bc few data points') +
+  theme_pubr() + scale_color_lancet() 
+
+mean_dist |>
+  filter(layer == 'Epithelium' & (target_cell == 'CD4+CCR10') & tissue == 'Shaft') |>
+  ggplot(aes(x = group,
+             y = mean_distance_to_annotation_with_epithelium_um,
+             color = group)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(alpha = 0.4) +
+  scale_y_log10() +
+  stat_compare_means(
+    comparisons = list(c('4h', 'Non infected')),
+    method = "wilcox.test", 
+    label = "p.signif") +
+  facet_grid(rows = vars(target_cell), cols = vars(condition), scales = 'free') +
+  labs(title = "[mean] CD4+CCR10+ Positive cells in Epithelial Tissue (Shaft)",
+       caption = 'pvalue for circumcised is signif in emmeans model, might not mean much tho bc few data points') +
+  theme_pubr() + scale_color_lancet() 
+
+```
+
+
+
+
+
+```{r}
+#htmltools::html_print(table)
+
+#write.csv(ShaftBigModel,"ShaftBigModel.csv",row.names = F,quote = F)
+
+#Check other combinations
+# not super interesting imo
+#pairs(lsmeans(model_shaft, ~ condition| group | layer | target_cell),adjust="fdr")
+#pairs(lsmeans(model_shaft, ~ condition | group | layer),adjust="fdr")
+
+
+#Data_1_Dist_MeanTotals<-aggregate(Total.Cells/Area.mm.2~condition+group+Tissue+Donor+layer+target_ce#ll, data = Data_1_Dist,mean)
+
+```
+
+
+
+
