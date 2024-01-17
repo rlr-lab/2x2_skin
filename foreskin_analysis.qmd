@@ -17,6 +17,13 @@ editor_options:
   chunk_output_type: console
 ---
 
+```{r}
+#| label: loading-packages-data
+
+library(tidyverse)
+library(DT)
+```
+
 
 # Overview + Highlights
 
@@ -31,20 +38,69 @@ In this sort of analysis, our expectation would be that shaft samples look the s
 - We did not detect differences between glans/shaft or circumcised/uncircumcised for the distance that virions penetrated
 
 
-# Bigger Plots
+## Bigger Plots
 
 
-# Specific Insights
+## Specific Insights
 
 
 
-# Remaining Questions/Concerns
+## Remaining Questions/Concerns
 
 
-# Conclusions + Future Analysis
+## Conclusions + Future Analysis
 - A lot of the emmeans models perform kinda poorly, and there isn't much we can do about this I feel like
 
-- 
 
-- Other questions we can ask about depth of penetration?
+# In Depth Analysis
+
+## Virion Particle count
+
+
+## Mast Cell Count Analysis
+
+
+## Immunofluorescence Cell Distribution
+
+We also had data from an immunofluorescence experiment, in which these samples of glans/shaft had been stained with CD3, CD4, and CCR10. Approximate cell types based on these markers are delineated below:
+
+```{r}
+#| label: cell-type-tibble
+
+tribble(
+  ~ "IF Expression", ~ "Expected Cell Type",
+  "CD3+CD4+CCR10+", "Th22 (Tissue Homing T cell)",
+  "CD3+CCR10+", "CD8+ Cutaneous Lymphoid Antigen T cell",
+  "CD4+CCR10+", "Langerhans skin cell",
+  "CD3+CD4+", "CD4+ T cell (likely Th1, Th2, Th9, or Th17)",
+  "CD3+", "Other T cell",
+  "CD4+", "HIV susceptible innate immune cells (macrophages, mast cells, etc)",
+  "CCR10+", "Melanocytes"
+) |>
+  gt::gt() |>
+  gt::tab_header(title = "Expected IF Cell Types")
+```
+
+Here, looking at the number of cells per sample isn't the most interesting, as this is likely just a result of how the tissue was cut. What *would* be interesting would be to look at if the ***distribution***, i.e. how far any particular cell type was from the beginning of the epithelial layer, of these cells changed as a result of the virion infection. 
+
+[INSERT ANALYSIS]
+
+
+### Adding Back virion penetration data
+
+We can also then go back to correlate this with virion penetration data:
+
+```{r}
+#| label: correlation-plot-one
+
+load(file = "figures/plots/correlation_plot_1.rda")
+
+correlation_plot_1
+```
+
+
+
+
+
+
 

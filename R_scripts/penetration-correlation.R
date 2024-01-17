@@ -10,6 +10,7 @@
 
 library(tidyverse)
 library(ggpubr)
+library(ggsci)
 
 # load data
 
@@ -18,7 +19,7 @@ load("data/processed/cell_and_virus_distance.rda")
 
 ## Initial Visualization ----
 
-cell_and_virus_distance |>
+correlation_plot_1 <- cell_and_virus_distance |>
   group_by(target_cell, donor, tissue, condition) |>
   filter(layer == 'Epithelium') |> # is there some subset of cells being affected?
   reframe(mean_baseline_distance_um = mean(distance_to_annotation_with_baseline_um),
@@ -34,3 +35,4 @@ cell_and_virus_distance |>
   facet_grid(condition*tissue ~ target_cell) +
   theme_pubr()+scale_color_npg()
   
+save(correlation_plot_1, file = "figures/plots/correlation_plot_1.rda")
