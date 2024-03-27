@@ -46,6 +46,7 @@ distance |>
   geom_boxplot(outlier.shape = NA) +
   geom_point(position = position_jitterdodge())+
   theme_pubr()+
+  scale_y_reverse() +
   scale_color_lancet()+
   facet_grid(~tissue*layer, scales = "free")+
   rotate_x_text(45)

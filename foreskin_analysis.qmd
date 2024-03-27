@@ -1,6 +1,6 @@
 ---
 title: "Analysis of Circumcision Data"
-author: "Ramon + Sean"
+author: "Sean Pascoe"
 date: today
 format:
   html:
@@ -10,6 +10,10 @@ format:
     code-fold: true
     code-tools: true
     link-external-newwindow: true
+lightbox:
+  match: auto
+  effect: zoom
+  desc-position: right
 execute:
   warning: false
 from: markdown+emoji 
@@ -99,8 +103,17 @@ correlation_plot_1
 ```
 
 
+Here, we can also zoom in on the tip of the biopsy-- as the plot above shows, virions aren't really penetrating further than 20um. If we just zoom into this area, we can see what % of each cell type is within our "viral range" (here defined as 30um from the epithelium), both in the case where virus was present (4h) and was not (Non infected). *Does the presence of virions affect the % of immune cell types at the tip?*
 
+```{r}
+#| label: correlation-plot-two
 
+load(file = "figures/plots/correlation_plot_2.rda")
+
+correlation_plot_2
+```
+
+Probably not. Maybe something weird (again) happening with the CD4 single positive cells; not sure how relevant this is though and may just reflect a subset of these cells that we don't have markers to define.
 
 
 

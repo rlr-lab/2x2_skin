@@ -101,11 +101,13 @@ tryptase %>%
 # here's a model with just the uninfected tissues-- what's going on in non-infected case?
   
 non_infected <- tryptase |>
-  filter(group == "Non Infected") 
+  filter(group == "Non Infected") |>
+  group_by(condition, tissue, target_cell, donor) |>
+  summarize(mean_percent_pos_by_area = mean(percent_pos_by_area))
 
 non_infected_model <-
   lme4::lmer(
-    log10(percent_pos_by_area) ~ condition * tissue * target_cell + (1 | donor),
+    log10(mean_percent_pos_by_area) ~ condition * tissue * target_cell + (1 | donor),
     data = non_infected
   )
 
@@ -174,16 +176,30 @@ non_infected |>
 
 non_infected |>
   #filter(tissue == "Shaft") |>
-  ggplot(aes(x = target_cell, y = percent_pos_by_area, color = target_cell)) + 
+  ggplot(aes(x = target_cell, y = mean_percent_pos_by_area, color = target_cell)) + 
   geom_boxplot(outlier.shape = NA) +
   geom_point(position = position_jitterdodge()) +
   stat_pvalue_manual(p_vals |> filter(group1 == 'CD117', tissue != '.',
                                       condition != '.'), 
-                     label = 'p_adj = {round(p.value, 5)}', y.position = 0.8) +
+                     label = 'p_adj = {round(p.value, 5)}', y.position = 0.6) +
   theme_pubr() + scale_color_npg() + 
   facet_grid(tissue ~ condition) + 
   labs(title = "Non Infected Samples",
-       y = expression ("% of cells expressing CD117 or Tryptase per"~mu*m^2)) +
+       y = expression ("mean % of cells expressing CD117 or Tryptase per"~mu*m^2)) +
+  rotate_x_text(45)
+
+non_infected |>
+  #filter(tissue == "Shaft") |>
+  ggplot(aes(x = tissue, y = mean_percent_pos_by_area, color = tissue)) + 
+  geom_boxplot(outlier.shape = NA) +
+  geom_point(position = position_jitterdodge()) +
+  stat_pvalue_manual(p_vals |> filter(group1 == 'Glans', target_cell != '.',
+                                      condition != '.'), 
+                     label = 'p_adj = {round(p.value, 5)}', y.position = 0.6) +
+  theme_pubr() + scale_color_npg() + 
+  facet_grid(target_cell ~ condition) + 
+  labs(title = "Non Infected Samples",
+       y = expression ("mean % of cells expressing CD117 or Tryptase per"~mu*m^2)) +
   rotate_x_text(45)
 
 ################################################################################
