@@ -3,20 +3,12 @@ title: "Analysis of Circumcision Data"
 author: "Sean Pascoe"
 date: today
 format: 
-  html:
+  gfm:
     toc: true
-    page-layout: full
-    embed-resources: true
-    code-fold: true
-    code-tools: true
-    link-external-newwindow: true
-lightbox:
-  match: auto
-  effect: zoom
-  desc-position: right
 execute:
   warning: false
 from: markdown+emoji 
+
 editor_options: 
   chunk_output_type: console
 ---
