@@ -32,33 +32,7 @@ source("R_scripts/functions/pairwise_comparisons.R")
 ```
 
 
-# Overview + Highlights
 
-This analysis analyzes data from 
-
-In this sort of analysis, our expectation would be that shaft samples look the same between circumcised and uncircumcised individuals, and that the glans samples react to virus differently and/or have different resident immune cell populations.
-
-- There were x,y,z differences that we found
-
-- These differences were/were not the same in shaft/glans
-
-- We did not detect differences between glans/shaft or circumcised/uncircumcised for the distance that virions penetrated
-
-
-## Bigger Plots
-
-
-## Specific Insights
-
-
-## Remaining Questions/Concerns
-
-
-## Conclusions + Future Analysis
-- A lot of the emmeans models perform kinda poorly, and there isn't much we can do about this I feel like
-
-
-# In Depth Analysis
 
 ## Background
 
