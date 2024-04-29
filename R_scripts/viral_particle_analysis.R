@@ -10,6 +10,7 @@ library(glmmTMB)
 library(tidyverse)
 library(emmeans)
 library(fitdistrplus)
+library(performance)
 
 
 source("R_scripts/functions/pairwise_comparisons.R")
@@ -23,7 +24,6 @@ load("data/processed/virus_counts.rda")
 
 # based on some distribution evaluation things, it looks like lognormal is gonna fit our data the best:
   
-
 plotdist(virus_counts$virions, histo = TRUE, demp = TRUE)
 descdist(virus_counts$virions, discrete=FALSE, boot=500)
 # i guess this is a mostly lognormal distribution??
@@ -160,14 +160,14 @@ hist(resid(mean_model))
 plot(fitted(mean_model),resid(mean_model))
 abline(h=0)
 
-mean_virus_counts %>%
+mean_virus_counts <- mean_virus_counts %>%
   ggplot(aes(x=condition,y=mean_virions,color=tissue))+
   geom_boxplot(outlier.shape = NA)+
   geom_point(position = position_jitterdodge())+
   theme_pubr()+scale_color_npg()+
   facet_grid(.~tissue, scales = "free")
 
-
+save(mean_virus_counts, file = "figures/plots/mean_virus_counts.rda")
 # not really seeing any significant differences when we just look at virion counts overall-- is there something we can do to analyze the depths that these virions penetrated?
 # this maybe makes sense tho because I think % penetrating is much more interesting anyways?
 # why were we modeling counts lmao
@@ -201,7 +201,7 @@ totals <- virus_counts |>
   dplyr::group_by(tissue, condition) |>
   dplyr::summarize(totals = n())
 
-virus_counts |>
+rejected_virions_plot <- virus_counts |>
   filter(percent_of_penetrating_virions == 0 & virions != 0) |>
   dplyr::group_by(tissue, condition) |>
   dplyr::summarize(counts = n()) |>
@@ -209,8 +209,10 @@ virus_counts |>
   mutate(percent_rejected = (counts*100)/totals) |>
   ggplot(aes(x = tissue, y = percent_rejected, fill = condition)) +
   geom_col(position = 'dodge', width = 0.6)+
-  theme_pubr()+scale_color_npg()
+  labs(y = "percent of images with virions \nbut with no penetrating virions") +
+  theme_pubclean()+scale_color_npg()
 
+save(rejected_virions_plot, file ="figures/plots/rejected_virions_plot.rda")
 
 rejected_virions <- virus_counts |>
   mutate(rejected_virions = virions - penetrating_virions,
@@ -227,6 +229,8 @@ rejected_virions |>
 # yeah ok i think what im doing here is garBAGE but the model should be good enough because that takes into account the fact that we're gonna have zeros or whatever and also its giving me p values so. fun investigation but nothing incredibly shocking here. we should get same results doing percent penetrating and percent rejected bc they're proxies for one another.
 
 # maybe see higher of pct of penetrating virions in uncircumcised?
+
+# NEED TO GET A P VALUE ON THIS!!
 virus_counts%>%
   ggplot(aes(x=condition,y=percent_of_penetrating_virions,color=condition))+
   geom_boxplot(outlier.shape = NA)+
@@ -254,11 +258,14 @@ plot(performance::check_distribution(lm_penetrators))
 # binned_residuals(lm_penetrators, residuals = "response")
 # check_model(lm_penetrators)
 
-compare_all_pairs(lm_penetrators, 
+comparisons <- compare_all_pairs(lm_penetrators, 
                   factors = c('tissue', 'condition'),
-                  p_adjustment = 'fdr') |>
+                  p_adjustment = 'fdr') 
+
+comparisons |>
   display_comparison_table_zvalue()
 
+p_vals <- comparisons |> get_pvals_for_comparisons()
 
 
 # here we see some significant differences between circumcised and uncircumcised-- specifically in shaft, but maybe in both? Yes definitely-- although there might be something funky about how I'm manipulating p values here by choosing which comparisons I want to make. 
@@ -268,25 +275,103 @@ Penetrators |>
   geom_boxplot(outlier.shape = NA) +
   geom_point(position = position_jitterdodge(jitter.width = 0.25))+
   theme_pubr()+scale_color_npg() +
-  stat_pvalue_manual(p_vals[1,], label = 'p.signif', y.position = c(110)) +
+  stat_pvalue_manual(p_vals[4,], label = 'p.adj.signif', y.position = c(110)) +
   labs(title = "Uncircumcised samples are more likely to have higher numbers of penetrating virions") 
 
 
-Penetrators |>
+
+penetrators_nomean_plot <- Penetrators |>
   ggplot(aes(x = condition, y= percent_of_penetrating_virions, color = condition)) +
   geom_boxplot(outlier.shape = NA) +
   geom_point(position = position_jitterdodge(jitter.width = 0.25))+
   theme_pubr()+scale_color_npg() +
   facet_wrap(~tissue) +
-  stat_pvalue_manual(p_vals_tissue, label = 'p.signif', y.position = c(120,120))
+  stat_pvalue_manual(p_vals[5:6,], label = 'p = {round(p.value, 4)}', y.position = c(105,105)) +
+  coord_cartesian(ylim = c(0,110))
+
+save(penetrators_nomean_plot, file = "figures/plots/penetrators_nomean_plot.rda")
 
 # Ok this is cool... but there are a lot of 100%s and 0%s in either case. This might be worth investigating-- who is at these extremes?
 
 
+# are values the same when we do mean?
 
 mean_penetrators <-virus_counts %>%
   group_by(condition, tissue, donor) %>%
   summarise(mean_percent_of_penetrating_virions = mean(percent_of_penetrating_virions)) 
+
+lm_mean_penetrators <- gamlss::gamlss((mean_percent_of_penetrating_virions/100) ~ condition*tissue,
+                                 # beta inflated something something
+                                 family = gamlss.dist::BEINF(), 
+                                 data = mean_penetrators)
+
+qqnorm(resid(lm_mean_penetrators))
+qqline(resid(lm_mean_penetrators))
+hist(resid(lm_mean_penetrators))
+plot(fitted(lm_mean_penetrators),resid(lm_mean_penetrators))
+abline(h=0)
+
+plot(performance::check_distribution(lm_mean_penetrators))
+
+# Check on this:
+# binned_residuals(lm_mean_penetrators, residuals = "response")
+# check_model(lm_mean_penetrators)
+
+comparisons <- compare_all_pairs(lm_mean_penetrators, 
+                                 factors = c('tissue', 'condition'),
+                                 p_adjustment = 'fdr') 
+
+
+comparisons |>
+  display_comparison_table_zvalue()
+
+p_vals <- comparisons |> get_pvals_for_comparisons()
+
+
+# here we see some significant differences between circumcised and uncircumcised-- specifically in shaft, but maybe in both? Yes definitely-- although there might be something funky about how I'm manipulating p values here by choosing which comparisons I want to make. 
+
+mean_penetrators |>
+  ggplot(aes(x = condition, y= mean_percent_of_penetrating_virions, color = condition)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_point(position = position_jitterdodge(jitter.width = 0.25))+
+  theme_pubr()+scale_color_npg() +
+  stat_pvalue_manual(p_vals[4,], label = 'p.adj.signif', y.position = c(110)) +
+  labs(title = "Uncircumcised samples are more likely to have higher numbers of penetrating virions") 
+
+
+
+mean_penetrators_plot <- mean_penetrators |>
+  ggplot(aes(x = condition, y= mean_percent_of_penetrating_virions, color = condition)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_point(position = position_jitterdodge(jitter.width = 0.25))+
+  theme_pubr()+scale_color_npg() +
+  facet_wrap(~tissue) +
+  stat_pvalue_manual(p_vals[5:6,], label = 'p = {round(p.value, 4)}', y.position = c(105,105)) +
+  coord_cartesian(ylim = c(0,110))
+
+save(mean_penetrators_plot, file = "figures/plots/mean_penetrators_plot.rda")
+
+## VERSION WITH P HACKING
+
+comparisons <- compare_all_pairs(lm_mean_penetrators, 
+                                 factors = c('tissue', 'condition'),
+                                 p_adjustment = 'none') 
+
+p_vals <- comparisons |> get_pvals_for_comparisons()
+
+# when we start p hacking, the data looks exactly like you want it to!
+
+
+mean_penetrators_plot_phack <- mean_penetrators |>
+  ggplot(aes(x = condition, y= mean_percent_of_penetrating_virions, color = condition)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_point(position = position_jitterdodge(jitter.width = 0.25))+
+  theme_pubr()+scale_color_npg() +
+  facet_wrap(~tissue) +
+  stat_pvalue_manual(p_vals[5:6,], label = 'p = {round(p.value, 4)}', y.position = c(105,105)) +
+  coord_cartesian(ylim = c(0,110))
+
+save(mean_penetrators_plot_phack, file = "figures/plots/mean_penetrators_plot_phack.rda")
 
 ################################################
 # Depth ----
@@ -297,13 +382,14 @@ mean_penetrators <-virus_counts %>%
 
 # just take a peek!
 
-Depth |>
+depth_distribution <- Depth |>
   ggplot(aes(y = tissue, color = condition, x = penetration_depth)) +
   geom_point(position = position_jitterdodge(jitter.width = 0.2), size = 0.1)+
   geom_boxplot(outlier.shape = NA, fill = NA)+
   theme_pubr()+scale_color_npg() +
   labs(title = 'Penetration Depth Distributions are Similar for Each Group')
 
+save(depth_distribution, file = "figures/plots/depth_distribution.rda")
 
 mean_depth <- Depth %>%
   group_by(condition, tissue, donor) %>%
@@ -328,17 +414,35 @@ ppcomp(list(fn,fg,fl), legendtext = plot.legend)
 gofstat(list(fn,fg,fl))
 
 # I don't know if you actually need the random effects term if you're doing mean depth here
-lm_mean_depth <- lme4::lmer(log10(mean_depth) ~ condition*tissue +(1|donor), data = mean_depth)
+lm_mean_depth <- lme4::lmer(log10(mean_depth) ~ condition*tissue + (1|donor), data = mean_depth)
 plot(check_distribution(lm_mean_depth))
 
 binned_residuals(lm_mean_depth)
 check_model(lm_mean_depth)
 
-t <- pairs(emmeans(lm_mean_depth, ~ condition))
-s <- pairs(emmeans(lm_mean_depth, ~ tissue))
-t.s <- pairs(emmeans(lm_mean_depth, ~ tissue | condition))
-s.t <- pairs(emmeans(lm_mean_depth, ~ condition | tissue))
-rbind(t.s,s.t,adjust="FDR")
+comparisons <- compare_all_pairs(lm_mean_depth, 
+                                 factors = c('tissue', 'condition'),
+                                 p_adjustment = 'fdr') 
+
+
+comparisons |>
+  display_comparison_table()
+
+p_vals <- comparisons |> get_pvals_for_comparisons()
+
+
+
+mean_depth_plot <- mean_depth |>
+  ggplot(aes(x=condition,y=mean_depth,color=tissue)) +
+  geom_boxplot(outlier.shape = NA)+
+  geom_point(position = position_jitterdodge())+
+  theme_pubr()+scale_color_npg()+
+  facet_grid(.~tissue,scales = "free") +
+  labs(title = "Mean depth of penetrating virions does not vary by individual") +
+  stat_pvalue_manual(p_vals[5:6,], label = 'p = {round(p.value, 4)}', y.position = c(20,20)) +
+  coord_cartesian(ylim = c(0,22))
+  
+save(mean_depth_plot, file ="figures/plots/mean_depth_plot.rda")
 
 # try again with random effects but without mean
 

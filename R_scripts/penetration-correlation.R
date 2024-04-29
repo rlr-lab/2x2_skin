@@ -30,11 +30,11 @@ correlation_plot_1 <- cell_and_virus_distance |>
   distinct() |> 
   ggplot(aes(x = mean_depth, y = mean_epithelium_distance_um, color = target_cell)) +
   geom_point() +
-  #scale_y_reverse() +
   geom_smooth(method = 'lm', se = FALSE) +
   labs(title = 'Correlation between Viral Penetration and Mean Distance to Epithelium',
        x = 'mean viral penetration (um)') +
   facet_grid(condition*tissue ~ target_cell) +
+  stat_cor(method = "kendall", cor.coef.name = "tau", label.y = 800) +
   theme_pubr()+scale_color_npg()
 
 # basically this plot tells us that anything within 30um of the epithelium barrier is
@@ -64,7 +64,7 @@ cell_and_virus_distance |>
 
 # can we also do this with our uninfected data?
 
-correlation_plot_2 <- distance |>
+virus_distance_data <- distance |>
   #filter(group == "Non infected") |>
   group_by(target_cell, donor, tissue, condition) |>
   mutate(in_virus_area = case_when(
@@ -74,17 +74,19 @@ correlation_plot_2 <- distance |>
   group_by(target_cell, donor, tissue, condition, group) |>
   summarize(n = n(),
             num_positive = sum(in_virus_area),
-            pct_positive = num_positive/n) |>
+            pct_positive = num_positive/n) 
+
+correlation_plot_2 <- virus_distance_data |>
   ggplot(aes(y = group, x = pct_positive, color = target_cell)) +
   geom_boxplot(outlier.shape = NA) +
-  geom_jitter(aes(size = num_positive)) +
+  geom_jitter(aes(size = n)) +
   labs(x = "% of cells in Viral Range (< 30um from Epithelium)",
        y = "Immunofluorescence Target") +
   facet_grid(condition*tissue ~ target_cell) +
   #facet_wrap(~target_cell, ncol = 7) +
   theme_pubr()+scale_color_npg()
 
-
+# okay... can i get p values on that?
 
 
   

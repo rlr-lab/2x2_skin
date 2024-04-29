@@ -12,21 +12,7 @@ source("R_scripts/functions/pairwise_comparisons.R")
 
 # load data
 
-tryptase <- read_csv("data/R21_PathCore.csv") |>
-  janitor::clean_names(replace=janitor:::mu_to_u) |> 
-  # accidentally labelled some target cells as 118/119 instead of 117
-  mutate(target_cell = case_when(
-    target_cell == 'CD118' ~ 'CD117',
-    target_cell == 'CD119' ~ 'CD117',
-    TRUE ~ target_cell
-  )) |>
-  mutate(donor = factor(donor),
-         replicate = factor(replicate),
-         positive = as.numeric(as.character(positive)),
-         percent_pos = (positive/total_cells)*100,
-         percent_pos_by_area = percent_pos/log10(area_um_2))
-
-load("data/processed/tryptase.rds")
+load("data/processed/tryptase.rda")
 
 
 
@@ -162,13 +148,14 @@ p_vals <- compare_pairs(non_infected_model,
 
 non_infected |>
   #filter(tissue == "Shaft") |>
-  ggplot(aes(x = condition, y = percent_pos_by_area, color = condition)) + 
+  ggplot(aes(x = condition, y = mean_percent_pos_by_area, color = condition)) + 
   geom_boxplot(outlier.shape = NA) +
   geom_point(position = position_jitterdodge()) +
   stat_pvalue_manual(p_vals |> filter(group1 == 'Circumcised', tissue != '.',
                                       target_cell != '.'), 
                      label = 'p_adj = {round(p.value, 3)}', y.position = 0.8) +
   theme_pubr() + scale_color_npg() + 
+  coord_cartesian(ylim = c(0,0.9)) +
   facet_grid(tissue ~ target_cell) + 
   labs(title = "Non Infected Samples",
        y = expression ("% of cells expressing CD117 or Tryptase per"~mu*m^2)) +
@@ -181,83 +168,30 @@ non_infected |>
   geom_point(position = position_jitterdodge()) +
   stat_pvalue_manual(p_vals |> filter(group1 == 'CD117', tissue != '.',
                                       condition != '.'), 
-                     label = 'p_adj = {round(p.value, 5)}', y.position = 0.6) +
+                     label = 'p_adj = {round(p.value, 4)}', y.position = 0.8) +
   theme_pubr() + scale_color_npg() + 
   facet_grid(tissue ~ condition) + 
+  coord_cartesian(ylim = c(0,0.9)) +
   labs(title = "Non Infected Samples",
        y = expression ("mean % of cells expressing CD117 or Tryptase per"~mu*m^2)) +
   rotate_x_text(45)
 
-non_infected |>
+non_infected_plot <- non_infected |>
   #filter(tissue == "Shaft") |>
   ggplot(aes(x = tissue, y = mean_percent_pos_by_area, color = tissue)) + 
   geom_boxplot(outlier.shape = NA) +
   geom_point(position = position_jitterdodge()) +
   stat_pvalue_manual(p_vals |> filter(group1 == 'Glans', target_cell != '.',
                                       condition != '.'), 
-                     label = 'p_adj = {round(p.value, 5)}', y.position = 0.6) +
+                     label = 'p_adj = {round(p.value, 4)}', y.position = 0.8) +
   theme_pubr() + scale_color_npg() + 
+  coord_cartesian(ylim = c(0,0.9)) +
   facet_grid(target_cell ~ condition) + 
   labs(title = "Non Infected Samples",
        y = expression ("mean % of cells expressing CD117 or Tryptase per"~mu*m^2)) +
   rotate_x_text(45)
 
-################################################################################
-### uninfected CD117 ----
-################################################################################
-
-# here's a model with just the uninfected (original) tissues and the CD117
-
-non_infected_cd117 <- tryptase |>
-  filter(group == "Non Infected") |>
-  filter(target_cell == "CD117")
-
-non_infected_model <-
-  lme4::lmer(
-    log10(percent_pos_by_area) ~ condition * tissue + (1 | donor),
-    data = non_infected_cd117
-  )
-
-# is the model any good?
-qqnorm(resid(non_infected_model))
-qqline(resid(non_infected_model))
-hist(resid(non_infected_model))
-plot(fitted(non_infected_model), resid(non_infected_model))
-abline(h = 0)
-
-summary(non_infected_model)
-
-
-# make pairwise comparisons
-
-compare_all_pairs(non_infected_model, factors = c('tissue', 'condition')) |>
-  display_comparison_table()
-
-
-p_vals <- compare_pairs(non_infected_model, 
-                        comparisons = comps_to_make,
-                        p_adjustment = 'fdr') |>
-  get_pvals_for_comparisons()
-
-# graphs of interesting comparisons -- non infected samples
-
-non_infected |>
-  #filter(tissue == "Shaft") |>
-  ggplot(aes(x = tissue, y = percent_pos_by_area, color = tissue)) + 
-  geom_boxplot(outlier.shape = NA) +
-  geom_point(position = position_jitterdodge()) +
-  stat_pvalue_manual(p_vals |> filter(group1 == 'Glans', condition != '.'), 
-                     label = 'p.adj.signif', y.position = 0.8, hide.ns = T,
-                     tip.length = 0) +
-  theme_pubr() + scale_color_npg() + 
-  facet_grid(condition ~ target_cell) + 
-  labs(title = "Non Infected Samples",
-       y = expression ("% of cells expressing CD117 or Tryptase per"~mu*m^2)) +
-  rotate_x_text(45)
-
-
-
-
+save(non_infected_plot, file = "figures/plots/non_infected_plot.rda")
 
 ################################################################################
 ### infected ----
@@ -266,11 +200,13 @@ non_infected |>
 # We can then compare that to the infected case:
   
 infected <- tryptase |>
-  filter(group == "4h HIV")
+  filter(group == "4h HIV") |>
+  group_by(condition, tissue, target_cell, donor) |>
+  summarize(mean_percent_pos_by_area = mean(percent_pos_by_area))
 
 infected_model <-
   lme4::lmer(
-    log10(percent_pos_by_area) ~ condition * tissue * target_cell + (1|donor),
+    log10(mean_percent_pos_by_area) ~ condition * tissue * target_cell + (1|donor),
     data = infected
   )
 
@@ -302,19 +238,20 @@ p_vals <- compare_pairs(infected_model,
                         p_adjustment = 'fdr') |>
   get_pvals_for_comparisons()
 
-infected |>
-  ggplot(aes(x = tissue, y = percent_pos_by_area, color = tissue)) + 
+infected_tryp_plot <- infected |>
+  ggplot(aes(x = tissue, y = mean_percent_pos_by_area, color = tissue)) + 
   geom_boxplot(outlier.shape = NA) +
   geom_point(position = position_jitterdodge()) +
   stat_pvalue_manual(p_vals |> filter(group1 == 'Glans', condition != '.'), 
-                     label = 'p.adj.signif', y.position = 0.6, hide.ns = T,
-                     tip.length = 0) +
+                     label = 'p_adj = {round(p.value, 4)}', y.position = 0.6) +
   theme_pubr() + scale_color_npg() + 
+  coord_cartesian(ylim = c(0,.7)) +
   facet_grid(condition ~ target_cell) + 
   labs(title = "Infected Samples",
        y = expression ("% of cells expressing CD117 or Tryptase per"~mu*m^2)) +
   rotate_x_text(45)
 
+save(infected_tryp_plot, file = "figures/plots/infected_tryp_plot.rda")
 
 ################################################################################
 ## paired samples: to do glans vs shaft -----
@@ -342,11 +279,13 @@ tryptase_paired %>%
 ################################################################################
 
 paired_glans <- tryptase_paired |> 
-  filter(tissue == "Glans")
+  filter(tissue == "Glans") |>
+  group_by(condition, tissue, target_cell, group, donor) |>
+  summarize(mean_percent_pos_by_area = mean(percent_pos_by_area))
 
 paired_glans_model <-
   lme4::lmer(
-    log10(percent_pos_by_area) ~ condition * group * target_cell + (1|donor),
+    log10(mean_percent_pos_by_area) ~ condition * group * target_cell + (1|donor),
     data = paired_glans
   )
 
@@ -380,29 +319,33 @@ glans_p_vals <- compare_pairs(paired_glans_model,
                         p_adjustment = 'fdr') |>
   get_pvals_for_comparisons()
 
-paired_glans |>
-  ggplot(aes(x = group, y = percent_pos_by_area, color = group)) + 
+glans_tryp_plot <- paired_glans |>
+  ggplot(aes(x = group, y = mean_percent_pos_by_area, color = group)) + 
   geom_boxplot(outlier.shape = NA) +
   geom_point(position = position_jitterdodge()) +
   stat_pvalue_manual(glans_p_vals |> filter(group1 == '4h HIV', condition != '.'), 
-                     label = 'p.adj.signif', y.position = 0.5, hide.ns = T,
-                     tip.length = 0) +
+                     label = 'p.adj = {round(p.value, 4)}', y.position = 0.6, bracket.size = 0.1) +
   theme_pubr() + scale_color_npg() + 
+  coord_cartesian(ylim = c(0,.7)) +
   facet_grid(condition ~ target_cell) + 
   labs(title = "Differences within Glans Samples",
        y = expression ("% of cells expressing CD117 or Tryptase per"~mu*m^2)) +
   rotate_x_text(45)
+
+save(glans_tryp_plot, file = "figures/plots/glans_tryp_plot.rda")
 
 ################################################################################
 ### shaft ----
 ################################################################################
 
 paired_shaft <- tryptase_paired |> 
-  filter(tissue == "Shaft")
+  filter(tissue == "Shaft") |>
+  group_by(condition, tissue, target_cell,group, donor) |>
+  summarize(mean_percent_pos_by_area = mean(percent_pos_by_area))
 
 paired_shaft_model <-
   lme4::lmer(
-    log10(percent_pos_by_area) ~ condition * group * target_cell + (1|donor),
+    log10(mean_percent_pos_by_area) ~ condition * group * target_cell + (1|donor),
     data = paired_shaft
   )
 
@@ -439,19 +382,20 @@ shaft_p_vals <- compare_pairs(paired_shaft_model,
                               p_adjustment = 'fdr') |>
   get_pvals_for_comparisons()
 
-paired_shaft |>
-  ggplot(aes(x = group, y = percent_pos_by_area, color = group)) + 
+shaft_tryp_plot <- paired_shaft |>
+  ggplot(aes(x = group, y = mean_percent_pos_by_area, color = group)) + 
   geom_boxplot(outlier.shape = NA) +
   geom_point(position = position_jitterdodge()) +
   stat_pvalue_manual(shaft_p_vals |> filter(group1 == '4h HIV', condition != '.'), 
-                     label = 'p.adj.signif', y.position = 0.5, hide.ns = T,
-                     tip.length = 0) +
+                     label = 'p.adj = {round(p.value, 4)}', y.position = 0.7, bracket.size = 0.1) +
   theme_pubr() + scale_color_npg() + 
+  coord_cartesian(ylim = c(0,.8)) +
   facet_grid(condition ~ target_cell) + 
   labs(title = "Differences within Shaft Samples",
        y = expression ("% of cells expressing CD117 or Tryptase per"~mu*m^2)) +
   rotate_x_text(45)
 
+save(shaft_tryp_plot, file = "figures/plots/shaft_tryp_plot.rda")
 
 # this is where we see the difference in circumcised that isn't in uncircumcised
 
@@ -464,8 +408,77 @@ tryptase_paired |>
   rotate_x_text(45)
 
 
-## mean 
+# ok, so do we see this tryptase specificity in tryp alone?
+# the answer seems to be no... I don't have a good reason as to why el oh el
+################################################################################
+### tryptase ----
+################################################################################
 
-# we can also look at the mean values of cells per area in each of these groups:
-  
-# but I'm not sure that we should?
+paired_tryp <- tryptase_paired |> 
+  filter(target_cell == "Tryptase") |>
+  group_by(condition, tissue, group, donor) |>
+  summarize(mean_percent_pos_by_area = mean(percent_pos_by_area))
+
+paired_tryp_model <-
+  lme4::lmer(
+    log10(mean_percent_pos_by_area) ~ condition * group * tissue + (1|donor),
+    data = paired_tryp
+  )
+
+# is the model any good?
+summary(paired_tryp_model)
+qqnorm(resid(paired_tryp_model))
+qqline(resid(paired_tryp_model))
+hist(resid(paired_tryp_model))
+plot(fitted(paired_tryp_model), resid(paired_tryp_model))
+abline(h = 0)
+
+performance::check_model(paired_tryp_model)
+
+
+
+comps_to_make <- c("group",
+                   "condition",
+                   "tissue",
+                   "condition | group | tissue",
+                   "tissue | condition | group",
+                   "group | condition | tissue")
+
+comparisons_made <- compare_pairs(paired_tryp_model, 
+                                  comparisons = comps_to_make,
+                                  p_adjustment = 'fdr')
+
+compare_all_pairs(paired_tryp_model, factors = c('group', 'condition', 'tissue'), p_adjustment = "none") |>
+  display_comparison_table(title = 'tryptase model')
+
+display_comparison_table(comparisons_made)
+
+shaft_p_vals <- compare_pairs(paired_shaft_model, 
+                              comparisons = comps_to_make,
+                              p_adjustment = 'fdr') |>
+  get_pvals_for_comparisons()
+
+shaft_tryp_plot <- paired_shaft |>
+  ggplot(aes(x = group, y = mean_percent_pos_by_area, color = group)) + 
+  geom_boxplot(outlier.shape = NA) +
+  geom_point(position = position_jitterdodge()) +
+  stat_pvalue_manual(shaft_p_vals |> filter(group1 == '4h HIV', condition != '.'), 
+                     label = 'p.adj = {round(p.value, 4)}', y.position = 0.7, bracket.size = 0.1) +
+  theme_pubr() + scale_color_npg() + 
+  coord_cartesian(ylim = c(0,.8)) +
+  facet_grid(condition ~ target_cell) + 
+  labs(title = "Differences within Shaft Samples",
+       y = expression ("% of cells expressing CD117 or Tryptase per"~mu*m^2)) +
+  rotate_x_text(45)
+
+save(shaft_tryp_plot, file = "figures/plots/shaft_tryp_plot.rda")
+
+# this is where we see the difference in circumcised that isn't in uncircumcised
+
+tryptase_paired |>
+  ggplot(aes(x = group, y = percent_pos_by_area, color = group)) + 
+  geom_boxplot(outlier.shape = NA) +
+  geom_point(position = position_jitterdodge()) +
+  theme_pubr() + scale_color_npg() + 
+  #facet_grid(condition ~ tissue) + 
+  rotate_x_text(45)

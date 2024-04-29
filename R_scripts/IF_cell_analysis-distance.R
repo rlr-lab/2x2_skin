@@ -1,4 +1,4 @@
-## MAST CELL ANALYSIS ------
+## IMMUNOFLUORESCENCE ANALYSIS ------
 
 # load packages
 
@@ -93,7 +93,7 @@ distance |>
 # mean across replicates 
 
 # why bother taking a mean here? -- this is probably my biggest question for Ramon
-# maybe makes it easier to model idk
+# seems to be what tom wants <3
 
 mean_dist <- distance |>
   dplyr::group_by(condition, group, layer, donor, tissue, target_cell) |>
@@ -110,7 +110,7 @@ mean_dist |>
   facet_wrap(~target_cell, scales = "free")
 
 mean_dist |> 
-  ggplot(aes(x=layer,
+  ggplot(aes(x=group,
              y=mean_distance_to_annotation_with_epithelium_um+1,
              color=group))+
   geom_boxplot(outlier.shape = NA)+
@@ -142,13 +142,15 @@ mean_dist |>
 
 
 glans <- mean_dist |> 
-  filter(tissue == 'Glans')
+  filter(tissue == 'Glans') |>
+  dplyr::rename("treat_group" = "group")
+  
 
 # check distribution of outcome variable
 ggplot(data = glans, aes(x = log10(mean_distance_to_annotation_with_epithelium_um))) +
   geom_histogram()
 
-model_glans <- lme4::lmer(log10(mean_distance_to_annotation_with_epithelium_um) ~ condition*group*layer*target_cell+(1|donor), 
+model_glans <- lme4::lmer(log10(mean_distance_to_annotation_with_epithelium_um) ~ condition*treat_group*layer*target_cell+(1|donor), 
                           data = glans)
 
 # is the model any good? -- better if we use log10 transform
@@ -162,24 +164,19 @@ abline(h = 0)
 performance::check_model(model_glans)
 
 
-# glance at all
-compare_all_pairs(model_glans, factors = c('group', 'condition', 'target_cell', 'layer')) |>
-  display_comparison_table(title = 'glans model')
-
-
 # here, we don't really care if certain cell types are more abundant than others, we 
 # care if their abundance changes between conditions
 
-comps_to_make <- c("group",
+comps_to_make <- c("treat_group",
                    "layer",
                    "condition",
                    #"target_cell",
-                   "condition | group",
-                   "condition | group | target_cell",
-                   "group | condition | target_cell",
-                   "condition | group | target_cell | layer",
-                   #"target_cell | condition | group | layer",
-                   "group | condition | target_cell | layer")
+                   "condition | treat_group",
+                   "condition | treat_group | target_cell",
+                   "treat_group | condition | target_cell",
+                   "condition | treat_group | target_cell | layer",
+                   #"target_cell | condition | treat_group | layer",
+                   "treat_group | condition | target_cell | layer")
 
 comparisons_made <- compare_pairs(model_glans, 
                                   comparisons = comps_to_make,
@@ -188,68 +185,30 @@ comparisons_made <- compare_pairs(model_glans,
 
 display_comparison_table(comparisons_made, title = 'glans table')
 
+
+p_vals <- comparisons_made |>
+  get_pvals_for_comparisons()
+
 # here we can see significant differences between CD3 as well as CD4 single positive 
-# cells in uncircumsized epithelium between infected and non infected-- a significant difference was not detected in corresponding circumsized tissue:
+# cells in uncircumcised epithelium between infected and non infected-- a significant difference was not detected in corresponding circumsized tissue:
 
 
-# can we... ?
-distance |>
-  filter(layer == 'Connective' & (target_cell == 'CD4' | target_cell == 'CD3') & tissue == 'Glans') |>
-  ggplot(aes(x = group,
-             y = distance_to_annotation_with_epithelium_um,
-             color = group)) +
-  geom_boxplot(outlier.shape = NA) +
-  geom_jitter(alpha = 0.4) +
+glans_if_plot <- glans |> 
+  ggplot(aes(x=treat_group,
+             y=mean_distance_to_annotation_with_epithelium_um+1,
+             color=treat_group))+
+  geom_boxplot(outlier.shape = NA)+
   scale_y_log10() +
-  stat_compare_means(
-    comparisons = list(c('4h', 'Non infected')),
-    method = "wilcox.test", 
-    label = "p.signif") +
-  facet_grid(rows = vars(target_cell), cols = vars(condition), scales = 'free') +
-  labs(title = "CD3/CD4 Single Positive cells in Connective Tissue (Glans)") +
-  theme_pubr() + scale_color_lancet() 
+  geom_point(position = position_jitterdodge())+
+  facet_grid(layer*condition~target_cell)+
+  ggprism::add_pvalue(p_vals |> filter(contrast == '4h - Non infected', layer != '.', p.value < 0.05), 
+                      label = 'p.adj = {round(p.value, 4)}', y.position = 2000, color = "black", bracket.size = 0.1) +
+  theme_pubr() +
+  labs(title = "Glans Samples") +
+  coord_cartesian(ylim = c(1,3000)) +
+  rotate_x_text(45)
 
-distance |>
-  filter(layer == 'Connective' & (target_cell == 'CD4' | target_cell == 'CCR10') & tissue == 'Glans') |>
-  ggplot(aes(x = condition,
-             y = distance_to_annotation_with_epithelium_um,
-             color = condition)) +
-  geom_boxplot(outlier.shape = NA) +
-  geom_jitter(alpha = 0.4) +
-  scale_y_log10() +
-  stat_compare_means(
-    comparisons = list(c('Circumcised', 'Uncircumcised')),
-    method = "wilcox.test", 
-    label = "p.signif") +
-  facet_grid(rows = vars(target_cell), cols = vars(group), scales = 'free') +
-  labs(title = "[not mean] CD4 Single Positive cells in Connective Tissue (Glans)") +
-  theme_pubr() + scale_color_lancet() 
-
-mean_dist |>
-  filter(layer == 'Connective' & (target_cell == 'CD4' | target_cell == 'CD3') & tissue == 'Glans') |>
-  ggplot(aes(x = group,
-             y = mean_distance_to_annotation_with_epithelium_um,
-             color = group)) +
-  geom_boxplot(outlier.shape = NA) +
-  geom_jitter(alpha = 0.4) +
-  scale_y_log10() +
-  stat_compare_means(
-    comparisons = list(c('4h', 'Non infected')),
-    method = "wilcox.test", 
-    label = "p.signif") +
-  facet_grid(rows = vars(target_cell), cols = vars(condition), scales = 'free') +
-  labs(title = "[mean] CD4 Single Positive cells in Connective Tissue (Glans)") +
-  theme_pubr() + scale_color_lancet()  
-
-mean_dist |>
-  filter(layer == 'Epithelium' & target_cell == 'CD4' & group == '4h') |>
-  ggplot(aes(x = condition,
-             y = mean_distance_to_annotation_with_epithelium_um,
-             color = condition)) +
-  geom_boxplot(outlier.shape = NA) +
-  geom_jitter() +
-  scale_y_log10() +
-  theme_pubr() + scale_color_lancet() 
+save(glans_if_plot, file = "figures/plots/glans_if_plot.rda")
 
 
 ################################################################################
@@ -257,10 +216,11 @@ mean_dist |>
 ################################################################################
 
 shaft <- mean_dist |> 
-  filter(tissue == 'Shaft')
+  filter(tissue == 'Shaft') |>
+  dplyr::rename("treat_group" = "group")
 
 
-model_shaft <- lme4::lmer(log10(mean_distance_to_annotation_with_epithelium_um) ~ condition*group*layer*target_cell+(1|donor), data = shaft)
+model_shaft <- lme4::lmer(log10(mean_distance_to_annotation_with_epithelium_um) ~ condition*treat_group*layer*target_cell+(1|donor), data = shaft)
 
 
 # is the model any good? -- better if we use log10 transform
@@ -274,22 +234,17 @@ abline(h = 0)
 performance::check_model(model_shaft)
 
 
-# glance at all
-compare_all_pairs(model_shaft, factors = c('group', 'condition', 'target_cell', 'layer')) |>
-  display_comparison_table(title = 'shaft model')
-
-
 # here, we don't really care if certain cell types are more abundant than others, we 
 # care if their abundance changes between conditions
 
-comps_to_make <- c("group",
+comps_to_make <- c("treat_group",
                    "layer",
                    "condition",
-                   "condition | group",
-                   "condition | group | target_cell",
-                   "group | condition | target_cell",
-                   "condition | group | target_cell | layer",
-                   "group | condition | target_cell | layer")
+                   "condition | treat_group",
+                   "condition | treat_group | target_cell",
+                   "treat_group | condition | target_cell",
+                   "condition | treat_group | target_cell | layer",
+                   "treat_group | condition | target_cell | layer")
 
 comparisons_made <- compare_pairs(model_shaft, 
                                   comparisons = comps_to_make,
@@ -297,41 +252,294 @@ comparisons_made <- compare_pairs(model_shaft,
 
 display_comparison_table(comparisons_made, title = "shaft model")
 
+################################################################################
+### by layer ----
+################################################################################
 
-# Now we can check out those by making plots-- I'm not too concerned here with cell types that were just differently abundant overall, but if that does end up being relevant somehow we can go back to it.
-# god i am on the same page as past sean <3 
+# idrc about layer?? like that is the outcome variable LOL
 
-mean_dist |>
-  filter(layer == 'Connective' & (target_cell == 'CD3') & tissue == 'Shaft' & condition == 'Circumcised') |>
-  ggplot(aes(x = group,
-             y = mean_distance_to_annotation_with_epithelium_um,
-             color = group)) +
-  geom_boxplot(outlier.shape = NA) +
-  geom_jitter(alpha = 0.4) +
+connective <- mean_dist |> 
+  dplyr::filter(layer == "Connective") |>
+  dplyr::rename("treat_group" = "group")
+
+
+# check distribution of outcome variable
+ggplot(data = connective, aes(x = log10(mean_distance_to_annotation_with_epithelium_um))) +
+  geom_histogram()
+
+model_connective <- lme4::lmer(log10(mean_distance_to_annotation_with_epithelium_um) ~ condition*treat_group*target_cell*tissue+(1|donor), 
+                          data = connective)
+
+# is the model any good? -- better if we use log10 transform
+summary(model_connective)
+qqnorm(resid(model_connective))
+qqline(resid(model_connective))
+hist(resid(model_connective))
+plot(fitted(model_connective), resid(model_connective))
+abline(h = 0)
+
+performance::check_model(model_connective)
+
+
+# glance at all
+compare_all_pairs(model_connective, factors = c('treat_group', 'condition', 'target_cell', "tissue")) |>
+  display_comparison_table(title = 'connective model')
+
+
+# here, we don't really care if certain cell types are more abundant than others, we 
+# care if their abundance changes between conditions
+
+comps_to_make <- c("treat_group",
+                   "tissue",
+                   "condition",
+                   #"target_cell",
+                   "condition | treat_group",
+                   "condition | treat_group | target_cell",
+                   "treat_group | condition | target_cell",
+                   "condition | treat_group | target_cell | tissue",
+                   "tissue | treat_group | target_cell | condition",
+                   #"target_cell | condition | treat_group | layer",
+                   "treat_group | condition | target_cell | tissue")
+
+comparisons_made <- compare_pairs(model_connective, 
+                                  comparisons = comps_to_make,
+                                  p_adjustment = 'fdr')
+
+
+display_comparison_table(comparisons_made, title = 'connective table')
+
+
+p_vals <- comparisons_made |>
+  get_pvals_for_comparisons()
+
+# here we can see significant differences between CD3 as well as CD4 single positive 
+# cells in uncircumcised epithelium between infected and non infected-- a significant difference was not detected in corresponding circumsized tissue:
+
+
+connective_layer_plot <- connective |> 
+  ggplot(aes(x=treat_group,
+             y=mean_distance_to_annotation_with_epithelium_um+1,
+             color=treat_group))+
+  geom_boxplot(outlier.shape = NA)+
   scale_y_log10() +
-  stat_compare_means(
-    comparisons = list(c('4h', 'Non infected')),
-    method = "wilcox.test", 
-    label = "p.signif") +
-  facet_grid(rows = vars(target_cell), cols = vars(condition), scales = 'free') +
-  labs(title = "[mean] CD3 Single Positive cells in Connective Tissue (Shaft)",
-       caption = 'pvalue is signif in emmeans model, might not mean much tho bc few data points') +
-  theme_pubr() + scale_color_lancet() 
+  geom_point(position = position_jitterdodge())+
+  facet_grid(tissue*condition~target_cell)+
+  ggprism::add_pvalue(p_vals |> filter(contrast == '4h - Non infected', tissue != '.', p.value < 0.05), 
+                      label = 'p.adj = {round(p.value, 4)}', y.position = 2000, color = "black", bracket.size = 0.1) +
+  theme_pubr() +
+  coord_cartesian(ylim = c(1,3000)) +
+  labs(title = "Cells in the Connective Layer") +
+  rotate_x_text(45)
 
-mean_dist |>
-  filter(layer == 'Epithelium' & (target_cell == 'CD4+CCR10') & tissue == 'Shaft') |>
-  ggplot(aes(x = group,
-             y = mean_distance_to_annotation_with_epithelium_um,
-             color = group)) +
-  geom_boxplot(outlier.shape = NA) +
-  geom_jitter(alpha = 0.4) +
+save(connective_layer_plot, file = "figures/plots/connective_layer_plot.rda")
+
+################################################################################
+### by layer: epithelium ----
+################################################################################
+
+# idrc about layer?? like that is the outcome variable LOL
+
+epithelium <- mean_dist |> 
+  dplyr::filter(layer == "Epithelium") |>
+  dplyr::rename("treat_group" = "group")
+
+
+# check distribution of outcome variable
+ggplot(data = epithelium, aes(x = log10(mean_distance_to_annotation_with_epithelium_um))) +
+  geom_histogram()
+
+model_epithelium <- lme4::lmer(log10(mean_distance_to_annotation_with_epithelium_um) ~ condition*treat_group*target_cell*tissue+(1|donor), 
+                               data = epithelium)
+
+# is the model any good? -- better if we use log10 transform
+summary(model_epithelium)
+qqnorm(resid(model_epithelium))
+qqline(resid(model_epithelium))
+hist(resid(model_epithelium))
+plot(fitted(model_epithelium), resid(model_epithelium))
+abline(h = 0)
+
+performance::check_model(model_epithelium)
+
+
+# here, we don't really care if certain cell types are more abundant than others, we 
+# care if their abundance changes between conditions
+
+comps_to_make <- c("treat_group",
+                   "tissue",
+                   "condition",
+                   #"target_cell",
+                   "condition | treat_group",
+                   "condition | treat_group | target_cell",
+                   "treat_group | condition | target_cell",
+                   "condition | treat_group | target_cell | tissue",
+                   "tissue | treat_group | target_cell | condition",
+                   #"target_cell | condition | treat_group | layer",
+                   "treat_group | condition | target_cell | tissue")
+
+comparisons_made <- compare_pairs(model_epithelium, 
+                                  comparisons = comps_to_make,
+                                  p_adjustment = 'fdr')
+
+
+display_comparison_table(comparisons_made, title = 'epithelium table')
+
+# nothing. great!
+
+################################################################################
+### uncircumcised ----
+################################################################################
+
+# idrc about layer?? like that is the outcome variable LOL
+
+uncut <- mean_dist |> 
+  dplyr::filter(condition == "Uncircumcised") |>
+  dplyr::rename("treat_group" = "group")
+
+
+# check distribution of outcome variable
+ggplot(data = uncut, aes(x = log10(mean_distance_to_annotation_with_epithelium_um))) +
+  geom_histogram()
+
+model_uncut <- lme4::lmer(log10(mean_distance_to_annotation_with_epithelium_um) ~ layer*treat_group*target_cell*tissue+(1|donor), 
+                               data = uncut)
+
+# is the model any good? -- better if we use log10 transform
+summary(model_uncut)
+qqnorm(resid(model_uncut))
+qqline(resid(model_uncut))
+hist(resid(model_uncut))
+plot(fitted(model_uncut), resid(model_uncut))
+abline(h = 0)
+
+performance::check_model(model_uncut)
+
+
+# glance at all
+compare_all_pairs(model_uncut, factors = c('treat_group', 'layer', 'target_cell', "tissue")) |>
+  display_comparison_table(title = 'uncircumcised model')
+
+
+# here, we don't really care if certain cell types are more abundant than others, we 
+# care if their abundance changes between conditions
+
+comps_to_make <- c("treat_group",
+                   "tissue",
+                   #"layer",
+                   #"target_cell",
+                   #"layer | treat_group",
+                   #"layer | treat_group | target_cell",
+                   "treat_group | tissue | target_cell",
+                   #"layer | treat_group | target_cell | tissue",
+                   "tissue | treat_group | target_cell | layer",
+                   #"target_cell | condition | treat_group | layer",
+                   "treat_group | layer | target_cell | tissue"
+                   )
+
+comparisons_made <- compare_pairs(model_uncut, 
+                                  comparisons = comps_to_make,
+                                  p_adjustment = 'fdr')
+
+
+display_comparison_table(comparisons_made, title = 'Uncircumcised table')
+
+
+p_vals <- comparisons_made |>
+  get_pvals_for_comparisons()
+
+
+uncut_if_plot <- uncut |> 
+  ggplot(aes(x=treat_group,
+             y=mean_distance_to_annotation_with_epithelium_um+1,
+             color=treat_group))+
+  geom_boxplot(outlier.shape = NA)+
   scale_y_log10() +
-  stat_compare_means(
-    comparisons = list(c('4h', 'Non infected')),
-    method = "wilcox.test", 
-    label = "p.signif") +
-  facet_grid(rows = vars(target_cell), cols = vars(condition), scales = 'free') +
-  labs(title = "[mean] CD4+CCR10+ Positive cells in Epithelial Tissue (Shaft)",
-       caption = 'pvalue for circumcised is signif in emmeans model, might not mean much tho bc few data points') +
-  theme_pubr() + scale_color_lancet() 
+  geom_point(position = position_jitterdodge())+
+  facet_grid(layer*tissue~target_cell)+
+  ggprism::add_pvalue(p_vals |> filter(contrast == '4h - Non infected', tissue != '.', p.value < 0.05), 
+                      label = 'p.adj = {round(p.value, 4)}', y.position = 2000, color = "black", bracket.size = 0.1) +
+  theme_pubr() +
+  coord_cartesian(ylim = c(1,3000)) +
+  labs(title = "Uncircumcised Samples") +
+  rotate_x_text(45)
 
+save(uncut_if_plot, file = "figures/plots/uncut_if_plot.rda")
+
+
+################################################################################
+### circumcised ----
+################################################################################
+
+
+cut <- mean_dist |> 
+  dplyr::filter(condition == "Circumcised") |>
+  dplyr::rename("treat_group" = "group")
+
+
+# check distribution of outcome variable
+ggplot(data = cut, aes(x = log10(mean_distance_to_annotation_with_epithelium_um))) +
+  geom_histogram()
+
+model_cut <- lme4::lmer(log10(mean_distance_to_annotation_with_epithelium_um) ~ layer*treat_group*target_cell*tissue+(1|donor), 
+                          data = cut)
+
+# is the model any good? -- better if we use log10 transform
+summary(model_cut)
+qqnorm(resid(model_cut))
+qqline(resid(model_cut))
+hist(resid(model_cut))
+plot(fitted(model_cut), resid(model_cut))
+abline(h = 0)
+
+performance::check_model(model_cut)
+
+
+# glance at all
+compare_all_pairs(model_cut, factors = c('treat_group', 'layer', 'target_cell', "tissue")) |>
+  display_comparison_table(title = 'circumcised model')
+
+
+# here, we don't really care if certain cell types are more abundant than others, we 
+# care if their abundance changes between conditions
+
+comps_to_make <- c("treat_group",
+                   "tissue",
+                   #"layer",
+                   #"target_cell",
+                   #"layer | treat_group",
+                   #"layer | treat_group | target_cell",
+                   "treat_group | tissue | target_cell",
+                   #"layer | treat_group | target_cell | tissue",
+                   "tissue | treat_group | target_cell | layer",
+                   #"target_cell | condition | treat_group | layer",
+                   "treat_group | layer | target_cell | tissue"
+)
+
+comparisons_made <- compare_pairs(model_cut, 
+                                  comparisons = comps_to_make,
+                                  p_adjustment = 'fdr')
+
+
+display_comparison_table(comparisons_made, title = 'Circumcised table')
+
+
+p_vals <- comparisons_made |>
+  get_pvals_for_comparisons()
+
+# here, only salient difference is between glans/shaft 
+cut_if_plot <- cut |> 
+  ggplot(aes(x=tissue,
+             y=mean_distance_to_annotation_with_epithelium_um+1,
+             color=tissue))+
+  geom_boxplot(outlier.shape = NA)+
+  scale_y_log10() +
+  geom_point(position = position_jitterdodge())+
+  facet_grid(treat_group~target_cell)+
+  ggprism::add_pvalue(p_vals |> filter(contrast == 'Glans - Shaft', treat_group != '.', p.value < 0.05), 
+                      label = 'p.adj = {round(p.value, 4)}', y.position = 2000, color = "black", bracket.size = 0.1) +
+  theme_pubr() +
+  coord_cartesian(ylim = c(1,3000)) +
+  labs(title = "Circumcised Samples") +
+  rotate_x_text(45)
+
+save(cut_if_plot, file = "figures/plots/uncut_if_plot.rda")

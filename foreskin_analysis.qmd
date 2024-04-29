@@ -25,13 +25,16 @@ editor_options:
 #| label: loading-packages-data
 
 library(tidyverse)
+library(patchwork)
 library(DT)
+source("R_scripts/functions/pairwise_comparisons.R")
+
 ```
 
 
 # Overview + Highlights
 
-This analysis analyzes []
+This analysis analyzes data from 
 
 In this sort of analysis, our expectation would be that shaft samples look the same between circumcised and uncircumcised individuals, and that the glans samples react to virus differently and/or have different resident immune cell populations.
 
@@ -48,7 +51,6 @@ In this sort of analysis, our expectation would be that shaft samples look the s
 ## Specific Insights
 
 
-
 ## Remaining Questions/Concerns
 
 
@@ -58,15 +60,245 @@ In this sort of analysis, our expectation would be that shaft samples look the s
 
 # In Depth Analysis
 
+## Background
+
+In this study, shave biopsies were collected from both the glans and shaft of circumcised/uncircumcised donors. Some biopsies were then cultured for 4 hours with HIV, and others were kept as uninfected controls. Tissue samples were stained and imaged and virus particles were counted. Samples were also later sent to the pathology core to be stained for CD117 and tryptase, in order to identify possible mast cell presence or difference in localization in these samples. Throughout the analysis, we look at the different distribution of virions and immune cells in these different conditions to investigate the immune cell dynamics in uncircumcised and circumcised penis tissue.
+
 ## Virion Particle count
 
+First, we can look at the distribution of individual virions between conditions. Our virion counts followed a negative binomial distribution, and thus we use negative binomial models to compare them and measure estimated marginal means.
+
+Here we see the mean number of virions found in each condition:
+
+```{r}
+#| label: mean-virion-counts
+
+load("figures/plots/mean_virus_counts.rda")
+mean_virus_counts
+```
+
+There is no significance here, but this probably makes sense, as the number of virions in an infected condition likely reflects experimental parameters rather than differential treatement of the virions by immune cells in the 4 hour period.
+
+Instead, we can look at just penetrating virions as the percent of total virions introduced. On first glance, it seems like circumcised donors have slightly higher levels of complete rejection:
+
+```{r}
+#| label: rejected-pct
+load("figures/plots/rejected_virions_plot.rda")
+rejected_virions_plot
+```
+
+We can also model the percent of penetrating virions, and we see that there *may be* a difference between circumcised and uncircumcised here. Notably, we do see a difference when we don't take the mean per donor, however, the mean per donor data is (unsignificant) but more aligned with the hypothesis that we would see a difference in glans but not in shaft:
+
+```{r}
+#| label: questionable-pct-penetrating
+#| fig-width: 11
+#| fig-height: 8
+load("figures/plots/penetrators_nomean_plot.rda")
+load("figures/plots/mean_penetrators_plot.rda")
+load("figures/plots/mean_penetrators_plot_phack.rda")
+
+p0 <- penetrators_nomean_plot +
+  labs(title = "% Penetrators per Image")
+
+p1 <- mean_penetrators_plot +
+  labs(title = "% Penetrators per Donor")
+
+p1_hack <- mean_penetrators_plot_phack +
+  labs(title = "% Penetrators per Donor (p hacking!)")
+
+p0 + p1
+```
+
+Here I am more tempted to believe the per donor analysis. If we don't correct for multiple hypothesis tests when we calculate p values, the difference between circumcised and uncircumcised within glans (but not shaft!) is signficant. Sure, this is p hacking, but if god wanted statistics to be rigorous he wouldn't have invented `stat_pvalue_manual()`.
+
+```{r}
+#| label: phacking
+#| fig-width: 11
+#| fig-height: 8
+p1 + p1_hack
+```
+
+
+We also have data here for the depth that virions penetrated-- but it looks generally the same between our samples.
+
+```{r}
+#| label: depth-broad
+
+load("figures/plots/depth_distribution.rda")
+depth_distribution
+```
+
+When we model this, do we see significant differences?
+
+```{r}
+#| label: distribution-same
+
+load("figures/plots/mean_depth_plot.rda")
+mean_depth_plot
+```
+
+
+No. 
 
 ## Mast Cell Count Analysis
 
+We can also look at the differences in distributions of tryptase and CD117, both of which should be mast cell markers, in these tissue samples. Here, we now also examine the difference between samples that were infected for 4h, and uninfected controls.
+
+### Infected vs Uninfected
+We start by building a mixed effect model of the uninfected data:
+
+```{r}
+#| label: tryp-uninf-model
+
+load("data/processed/tryptase.rda")
+non_infected <- tryptase |>
+  filter(group == "Non Infected") |>
+  group_by(condition, tissue, target_cell, donor) |>
+  summarize(mean_percent_pos_by_area = mean(percent_pos_by_area))
+
+non_infected_model <-
+  lme4::lmer(
+    log10(mean_percent_pos_by_area) ~ condition * tissue * target_cell + (1 | donor),
+    data = non_infected
+  )
+
+compare_all_pairs(non_infected_model, factors = c('tissue', 'condition', 'target_cell')) |>
+  display_comparison_table(title = "Non Infected Samples Model")
+```
+
+We can view the signficant differences, contrasted with the nonsignificant ones:
+```{r}
+#| label: noninf-plot-try
+load("figures/plots/non_infected_plot.rda")
+non_infected_plot
+```
+
+We can then compare this to a mixed effects model built from the infected samples:
+
+```{r}
+#| label: inf-model
+
+infected <- tryptase |>
+  filter(group == "4h HIV") |>
+  group_by(condition, tissue, target_cell, donor) |>
+  summarize(mean_percent_pos_by_area = mean(percent_pos_by_area))
+
+infected_model <-
+  lme4::lmer(
+    log10(mean_percent_pos_by_area) ~ condition * tissue * target_cell + (1|donor),
+    data = infected
+  )
+
+compare_all_pairs(infected_model, factors = c('tissue', 'condition', 'target_cell')) |>
+  display_comparison_table(title = "Infected Samples Model")
+
+```
+
+And can visualize those differences:
+
+```{r}
+#| label: infected-tryp-plot
+load("figures/plots/infected_tryp_plot.rda")
+infected_tryp_plot
+```
+
+### Glans vs Shaft
+
+If we want to directly compare infected and uninfected samples, we need to make sure we only have paired samples (those from the same donor).
+
+We first build a mixed effects model looking at differences within glans:
+
+```{r}
+#| label: glans-tryp-model
+
+Donors_w4h <- unique(filter(tryptase, group == "4h HIV")$donor)
+
+tryptase_paired <-
+  tryptase %>% 
+  filter(donor %in% Donors_w4h)
+
+
+paired_glans <- tryptase_paired |> 
+  filter(tissue == "Glans") |>
+  group_by(condition, tissue, target_cell, group, donor) |>
+  summarize(mean_percent_pos_by_area = mean(percent_pos_by_area))
+
+paired_glans_model <-
+  lme4::lmer(
+    log10(mean_percent_pos_by_area) ~ condition * group * target_cell + (1|donor),
+    data = paired_glans
+  )
+
+comps_to_make <- c("group",
+                   "condition",
+                   "target_cell",
+                   "condition | group | target_cell",
+                   "target_cell | condition | group",
+                   "group | condition | target_cell")
+
+comparisons_made <- compare_pairs(paired_glans_model, 
+                                  comparisons = comps_to_make,
+                                  p_adjustment = 'fdr')
+
+display_comparison_table(comparisons_made)
+```
+
+We can then visualize these differences:
+
+```{r}
+#| label: glans-tryp-plot
+load("figures/plots/glans_tryp_plot.rda")
+glans_tryp_plot
+```
+
+And we can then also look to see what differences we have in samples from shaft:
+
+```{r}
+#| label: shaft-tryp-model
+paired_shaft <- tryptase_paired |> 
+  filter(tissue == "Shaft") |>
+  group_by(condition, tissue, target_cell,group, donor) |>
+  summarize(mean_percent_pos_by_area = mean(percent_pos_by_area))
+
+paired_shaft_model <-
+  lme4::lmer(
+    log10(mean_percent_pos_by_area) ~ condition * group * target_cell + (1|donor),
+    data = paired_shaft
+  )
+
+comps_to_make <- c("group",
+                  "condition",
+                  "target_cell",
+                  "condition | group | target_cell",
+                  "target_cell | condition | group",
+                  "group | condition | target_cell")
+
+comparisons_made <- compare_pairs(paired_shaft_model, 
+                                  comparisons = comps_to_make,
+                                  p_adjustment = 'fdr')
+
+display_comparison_table(comparisons_made)
+```
+
+And we can visualize these:
+
+```{r}
+#| label: shaft-tryp-plot
+load("figures/plots/shaft_tryp_plot.rda")
+shaft_tryp_plot
+```
+
+These two are interesting in tandem, because (taken as a binary for their statistical significance) there is an indication that there are fewer tryptase expressing cells in in circumcised glans, but *not* in circumcised shaft, when comparing between infected and non infected cells. In the context of our hypothesis, this might imply that a lower rate of HIV acquisition in circumcised men is related to a more prominent reduction in tryptase levels in response to HIV innoculation.
+
+Still, these are p values close to 0.05, and we might have to follow this with more targeted experimentation to figure out if this is signal or noise.
 
 ## Immunofluorescence Cell Distribution
 
-We also had data from an immunofluorescence experiment, in which these samples of glans/shaft had been stained with CD3, CD4, and CCR10. Approximate cell types based on these markers are delineated below:
+Finally, we turn to data from the immunofluorescence experiment, in which these samples of glans/shaft had been stained with CD3, CD4, and CCR10. These cells were then counted, and measured as distance from the epithelium. A representative image is included: 
+
+![](figures/tissue_example.png)
+
+Approximate cell types based on these markers are delineated below:
 
 ```{r}
 #| label: cell-type-tibble
@@ -87,15 +319,187 @@ tribble(
 
 Here, looking at the number of cells per sample isn't the most interesting, as this is likely just a result of how the tissue was cut. What *would* be interesting would be to look at if the ***distribution***, i.e. how far any particular cell type was from the beginning of the epithelial layer, of these cells changed as a result of the virion infection. 
 
-[INSERT ANALYSIS]
+Here, I am going to break each tissue section into connective and epithelium, and then model differences:
+
+```{r}
+#| label: if-connective-table
+
+distance <- read_csv("data/Target cells R21 DISTANCE.csv") |>
+  janitor::clean_names(replace=janitor:::mu_to_u) |> 
+  mutate(donor = factor(donor),
+         replicate = factor(replicate))
+
+mean_dist <- distance |>
+  dplyr::group_by(condition, group, layer, donor, tissue, target_cell) |>
+  dplyr::summarize(mean_distance_to_annotation_with_epithelium_um = mean(distance_to_annotation_with_epithelium_um))
+
+connective <- mean_dist |> 
+  dplyr::filter(layer == "Connective") |>
+  dplyr::rename("treat_group" = "group")
+
+model_connective <- lme4::lmer(log10(mean_distance_to_annotation_with_epithelium_um) ~ condition*treat_group*target_cell*tissue+(1|donor), 
+                          data = connective)
 
 
-### Adding Back virion penetration data
+comps_to_make <- c("treat_group",
+                   "tissue",
+                   "condition",
+                   #"target_cell",
+                   "condition | treat_group",
+                   "condition | treat_group | target_cell",
+                   "treat_group | condition | target_cell",
+                   "condition | treat_group | target_cell | tissue",
+                   "tissue | treat_group | target_cell | condition",
+                   #"target_cell | condition | treat_group | layer",
+                   "treat_group | condition | target_cell | tissue")
 
-We can also then go back to correlate this with virion penetration data:
+comparisons_made <- compare_pairs(model_connective, 
+                                  comparisons = comps_to_make,
+                                  p_adjustment = 'fdr')
+
+
+display_comparison_table(comparisons_made, title = 'connective table')
+
+```
+
+We can also plot some of this data to investigate differences:
+
+```{r}
+#| label: connective-plot
+#| fig-width: 12
+#| fig-height: 8
+load("figures/plots/connective_layer_plot.rda")
+connective_layer_plot
+```
+
+However, when we do the same with just cells from the epithelial layer, there aren't any significant differences. We can go back to our glans/shaft split, modeling glans first:
+
+### Glans vs Shaft
+
+```{r}
+glans <- mean_dist |> 
+  filter(tissue == 'Glans') |>
+  dplyr::rename("treat_group" = "group")
+
+model_glans <- lme4::lmer(log10(mean_distance_to_annotation_with_epithelium_um) ~ condition*treat_group*layer*target_cell+(1|donor), 
+                          data = glans)
+
+comps_to_make <- c("treat_group",
+                   "layer",
+                   "condition",
+                   #"target_cell",
+                   "condition | treat_group",
+                   "condition | treat_group | target_cell",
+                   "treat_group | condition | target_cell",
+                   "condition | treat_group | target_cell | layer",
+                   #"target_cell | condition | treat_group | layer",
+                   "treat_group | condition | target_cell | layer")
+
+comparisons_made <- compare_pairs(model_glans, 
+                                  comparisons = comps_to_make,
+                                  p_adjustment = 'fdr')
+
+
+display_comparison_table(comparisons_made, title = 'glans table')
+
+```
+
+We can also visualize some of these differences:
+
+```{r}
+#| label: glans-viz
+#| fig-width: 12
+#| fig-height: 8
+load("figures/plots/glans_if_plot.rda")
+glans_if_plot
+```
+
+
+This is in contrast to doing the same comparisons on just the shaft data, which did not yield any signficiant differences in distance from epithelium.
+
+As a last check-- when we split the data by uncircumcised and circumcised do we see anything?
+
+### Uncircumcised vs circumcised
+
+We see some differences with the uncircumcised data alone, as shown below:
+
+```{r}
+uncut <- mean_dist |> 
+  dplyr::filter(condition == "Uncircumcised") |>
+  dplyr::rename("treat_group" = "group")
+
+model_uncut <- lme4::lmer(log10(mean_distance_to_annotation_with_epithelium_um) ~ layer*treat_group*target_cell*tissue+(1|donor), 
+                               data = uncut)
+
+comps_to_make <- c("treat_group",
+                   "tissue",
+                   #"layer",
+                   #"target_cell",
+                   #"layer | treat_group",
+                   #"layer | treat_group | target_cell",
+                   "treat_group | tissue | target_cell",
+                   #"layer | treat_group | target_cell | tissue",
+                   "tissue | treat_group | target_cell | layer",
+                   #"target_cell | condition | treat_group | layer",
+                   "treat_group | layer | target_cell | tissue"
+                   )
+
+comparisons_made <- compare_pairs(model_uncut, 
+                                  comparisons = comps_to_make,
+                                  p_adjustment = 'fdr')
+
+display_comparison_table(comparisons_made, title = 'Uncircumcised table')
+```
+
+```{r}
+#| fig-width: 12
+#| fig-height: 8
+load("figures/plots/uncut_if_plot.rda")
+uncut_if_plot
+```
+
+However, there is not much reciprocal significance in the circumcised data, and these effect sizes do not seem large:
+
+```{r}
+
+cut <- mean_dist |> 
+  dplyr::filter(condition == "Circumcised") |>
+  dplyr::rename("treat_group" = "group")
+
+model_cut <- lme4::lmer(log10(mean_distance_to_annotation_with_epithelium_um) ~ layer*treat_group*target_cell*tissue+(1|donor), 
+                          data = cut)
+
+comps_to_make <- c("treat_group",
+                   "tissue",
+                   #"layer",
+                   #"target_cell",
+                   #"layer | treat_group",
+                   #"layer | treat_group | target_cell",
+                   "treat_group | tissue | target_cell",
+                   #"layer | treat_group | target_cell | tissue",
+                   "tissue | treat_group | target_cell | layer",
+                   #"target_cell | condition | treat_group | layer",
+                   "treat_group | layer | target_cell | tissue"
+)
+
+comparisons_made <- compare_pairs(model_cut, 
+                                  comparisons = comps_to_make,
+                                  p_adjustment = 'fdr')
+
+
+display_comparison_table(comparisons_made, title = 'Circumcised table')
+
+```
+
+
+## Virion/IF Distance Correlations
+
+Because we also had distance measurements for virion penetration, we can revisit that data and see if there are salient correlations:
 
 ```{r}
 #| label: correlation-plot-one
+#| fig-width: 12
+#| fig-height: 8
 
 load(file = "figures/plots/correlation_plot_1.rda")
 
@@ -107,10 +511,13 @@ Here, we can also zoom in on the tip of the biopsy-- as the plot above shows, vi
 
 ```{r}
 #| label: correlation-plot-two
+#| fig-width: 12
+#| fig-height: 8
 
 load(file = "figures/plots/correlation_plot_2.rda")
 
-correlation_plot_2
+correlation_plot_2 +
+  theme(axis.text.x = element_text(angle = 90))
 ```
 
 Probably not. Maybe something weird (again) happening with the CD4 single positive cells; not sure how relevant this is though and may just reflect a subset of these cells that we don't have markers to define.

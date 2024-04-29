@@ -2,6 +2,7 @@
 
 # load packages
 library(tidyverse)
+library(gt)
 library(emmeans)
 
 

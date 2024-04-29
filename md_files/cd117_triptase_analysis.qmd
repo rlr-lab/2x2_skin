@@ -2,6 +2,8 @@
 title: "CD117_Triptase_anaylsis"
 subtitle: "tidied by sean :)"
 author: "Ramon Lorenzo"
+project:
+  execute-dir: project
 date: today
 format:
   html:
